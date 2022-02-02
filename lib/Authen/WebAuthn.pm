@@ -252,7 +252,8 @@ sub validate_assertion {
     # inappropriate for your use case), look up the corresponding credential
     # public key and let credentialPublicKey be that credential public key.
     my $credential_verifier =
-      getPubKeyVerifier( decode_base64url($credential_pubkey_b64) );
+      eval { getPubKeyVerifier( decode_base64url($credential_pubkey_b64) ) };
+    croak "Cannot get signature validator for assertion: $@" if ($@);
 
     # 8. Let cData, authData and sig denote the value of response’s
     # clientDataJSON, authenticatorData, and signature respectively.
