@@ -2,8 +2,6 @@
 
 A library to add [Web Authentication](https://www.w3.org/TR/webauthn-2/) support to server applications
 
-![](image.png){width=100%}
-
 # Status
 
 * Authentication works
