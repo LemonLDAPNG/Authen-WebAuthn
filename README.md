@@ -1,6 +1,6 @@
 # Authen::WebAuthn
 
-A library to add [Web Authentication](https://www.w3.org/TR/webauthn-2/) support to server applications
+A library to add [Web Authentication](https://www.w3.org/TR/webauthn/) support to server applications
 
 # Status
 

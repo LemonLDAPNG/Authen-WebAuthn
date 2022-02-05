@@ -3,7 +3,7 @@
 
 =head1 SYNOPSIS
 
-This module lets you validate WebAuthn registration and authentication responses.
+This module lets you validate L<Web Authentication|https://www.w3.org/TR/webauthn/> registration and authentication responses.
 
 Currently, it does not handle the generation of registration and authentication requests.
 
@@ -212,6 +212,8 @@ This limitation may be addressed in a future version.
 =head1 SEE ALSO
 
 =over 4
+
+=item L<W3C Web Authentication specification|https://www.w3.org/TR/webauthn/>
 
 =item L<FIDO::Raw>
 
