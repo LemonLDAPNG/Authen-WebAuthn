@@ -787,11 +787,29 @@ sub attest_packed_x5c {
 
     # Verify that attestnCert meets the requirements in § 8.2.1 Packed
     # Attestation Statement Certificate Requirements.
-    # TODO
+    eval { attest_packed_check_cert_requirements($x5c) };
+    croak "Attestation certificate does not satisfy requirements: $@" if ($@);
+
     # If attestnCert contains an extension with OID 1.3.6.1.4.1.45724.1.1.4
     # (id-fido-gen-ce-aaguid) verify that the value of this extension matches
     # the aaguid in authenticatorData.
-    # TODO
+    my $aaguid_ext = $x5c->extensions_by_oid->{'1.3.6.1.4.1.45724.1.1.4'};
+    if ($aaguid_ext) {
+        my $ad_aaguid = $authenticator_data->{attestedCredentialData}->{aaguid};
+        my $cert_aaguid = $aaguid_ext->value;
+        croak "Invalid id-fido-gen-ce-aaguid extension format"
+          unless $cert_aaguid =~ /^#0410.{32}$/;
+
+        # Reformat aaguids so they can be compared
+        ($cert_aaguid) = $cert_aaguid =~ /^#0410(.{32})$/;
+        $ad_aaguid =~ s/-//g;
+        $ad_aaguid = uc($ad_aaguid);
+
+        croak "AAGUID from certificate ($cert_aaguid)"
+          . " does not match AAGUID from authenticator data ($ad_aaguid)"
+          if $ad_aaguid ne $cert_aaguid;
+    }
+
     # Optionally, inspect x5c and consult externally provided knowledge to
     # determine whether attStmt conveys a Basic or AttCA attestation.
     # TODO
@@ -809,6 +827,34 @@ sub attest_packed_x5c {
     else {
         croak "Invalid attestation signature";
     }
+}
+
+# Implements 8.2.1. Packed Attestation Statement Certificate Requirements
+sub attest_packed_check_cert_requirements {
+    my ($x5c) = @_;
+
+    my $version = $x5c->version;
+
+    # Version MUST be set to 3
+    # (which is indicated by an ASN.1 INTEGER with value 2).
+    croak "Invalid certificate version" unless $version eq "02";
+
+    # Subject field
+    croak "Missing subject C" unless $x5c->subject_name->get_entry_by_type("C");
+    croak "Missing subject O" unless $x5c->subject_name->get_entry_by_type("O");
+    croak "Missing subject CN"
+      unless $x5c->subject_name->get_entry_by_type("CN");
+    croak "Missing subject OU"
+      unless $x5c->subject_name->get_entry_by_type("OU");
+    croak "Unexpected OU"
+      unless $x5c->subject_name->get_entry_by_type("OU")->value eq
+      "Authenticator Attestation";
+
+    # The Basic Constraints extension MUST have the CA component set to false.
+    my $isCa = $x5c->extensions_by_oid->{"2.5.29.19"}->basicC("ca");
+    croak "Basic Constraints CA is true" if $isCa;
+
+    return;
 }
 
 sub attest_packed_self {
