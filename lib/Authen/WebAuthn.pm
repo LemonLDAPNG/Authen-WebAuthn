@@ -12,6 +12,7 @@ use Crypt::OpenSSL::X509;
 use CBOR::XS;
 use URI;
 use Carp;
+use Authen::WebAuthn::SSLeayChainVerifier;
 
 has rp_id  => ( is => 'rw', required => 1 );
 has origin => ( is => 'rw', required => 1 );
@@ -61,16 +62,14 @@ my $COSE_ALG = {
 sub validate_registration {
     my ( $self, %params ) = @_;
 
-    my (
-        $challenge_b64,        $requested_uv,
+    my ( $challenge_b64, $requested_uv,
         $client_data_json_b64, $attestation_object_b64,
-        $token_binding_id_b64
-      )
+        $token_binding_id_b64, $trust_anchors )
       = @params{ qw(
           challenge_b64        requested_uv
           client_data_json_b64 attestation_object_b64
-          token_binding_id_b64
-          )
+          token_binding_id_b64 trust_anchors
+        )
       };
 
     my $client_data_json = decode_base64url($client_data_json_b64);
@@ -206,11 +205,27 @@ sub validate_registration {
     # anchors (i.e. attestation root certificates) for that attestation type
     # and attestation statement format fmt, from a trusted source or from
     # policy.
-    # TODO
+    if ( defined($trust_anchors) and ref($trust_anchors) eq "SUB" ) {
+
+        my $aaguid = $authenticator_data->{attestedCredentialData}->{aaguid};
+
+        $trust_anchors = $trust_anchors->(
+            aaguid             => $aaguid,
+            attestation_type   => $attestation_result->{type},
+            attestation_format => $attestation_statement_format,
+        );
+
+        if ( ref($trust_anchors) ne "ARRAY" ) {
+            croak("trust_anchors sub must return an ARRAY reference");
+        }
+    }
+    elsif ( defined($trust_anchors) and ref($trust_anchors) ne "ARRAY" ) {
+        croak("trust_anchors parameter must be a SUB or ARRAY reference");
+    }
 
     # 21. Assess the attestation trustworthiness using the outputs of the
     # verification procedure in step 19, as follows:
-    # TODO
+    $self->check_attestation_trust( $attestation_result, $trust_anchors );
 
     # 22. Check that the credentialId is not yet registered to any other user
     # TODO
@@ -396,11 +411,11 @@ sub _ecc_obj_to_cose {
     #];
 
     # Manually encode the COSE key
-    return "\xa5" .    #Map of 5 items
-      "\x01\x02" .     # kty => EC2
-      "\x03\x26" .     # alg => ES256
-      "\x20\x01" .     # crv => P-256
-      "\x21" .         # x =>
+    return "\xa5" .                                 #Map of 5 items
+      "\x01\x02" .                                  # kty => EC2
+      "\x03\x26" .                                  # alg => ES256
+      "\x20\x01" .                                  # crv => P-256
+      "\x21" .                                      # x =>
       "\x58\x20" . pack( "H*", $key->{pub_x} ) .    # x coordinate as a bstr
       "\x22" .                                      # y =>
       "\x58\x20" . pack( "H*", $key->{pub_y} )      # y coordinate as a bstr
@@ -460,6 +475,77 @@ sub check_token_binding {
         # Token binding "supported" but not used, or unknown/missing value
         return;
     }
+}
+
+sub check_attestation_trust {
+    my ( $self, $attestation_result, $trust_anchors ) = @_;
+
+    # If no attestation was provided, verify that None attestation is acceptable
+    # under
+    # Relying Party policy.
+    if ( $attestation_result->{type} eq "None" ) {
+
+        # TODO
+        return 1;
+    }
+
+    # If self attestation was used, verify that self attestation is acceptable
+    # under
+    # Relying Party policy.
+    if ( $attestation_result->{type} eq "Self" ) {
+
+        # TODO
+        return 1;
+    }
+
+    #Otherwise, use the X.509 certificates returned as the attestation trust
+    #path from the verification procedure to verify that the attestation public
+    #key either correctly chains up to an acceptable root certificate, or is
+    #itself an acceptable certificate (i.e., it and the root certificate
+    #obtained in Step 20 may be the same).
+
+    my $attn_cert = $attestation_result->{trust_path}->[0];
+    unless ($attn_cert) {
+        croak("Missing attestation certificate");
+    }
+
+    my @trust_chain = @{ $attestation_result->{trust_path} };
+    shift @trust_chain;
+
+    if ( $self->matchCertificateInList( $attn_cert, $trust_anchors ) ) {
+        return 1;
+    }
+    my $verify_result =
+      Authen::WebAuthn::SSLeayChainVerifier::verify_chain( $trust_anchors,
+        $attn_cert, \@trust_chain );
+    if ( $verify_result->{result} == 1 ) {
+        return 1;
+    }
+    else {
+        croak( "Could not validate attestation trust: "
+              . $verify_result->{message} );
+    }
+
+}
+
+# Try to find a DER-encoded certificate in a list of PEM-encoded certificates
+sub matchCertificateInList {
+    my ( $self, $attn_cert, $trust_anchors ) = @_;
+    return if ref($trust_anchors) ne "ARRAY";
+
+    for my $candidate (@$trust_anchors) {
+        my $candidate_x509 = eval {
+            Crypt::OpenSSL::X509->new_from_string( $candidate,
+                Crypt::OpenSSL::X509::FORMAT_PEM );
+        };
+        next unless $candidate_x509;
+        if ( $attn_cert eq
+            $candidate_x509->as_string(Crypt::OpenSSL::X509::FORMAT_ASN1) )
+        {
+            return 1;
+        }
+    }
+    return;
 }
 
 # Used by u2f assertion types
@@ -822,6 +908,7 @@ sub attest_packed_x5c {
             success    => 1,
             type       => "Unsure",
             trust_path => $attestation_statement->{x5c},
+            aaguid => $authenticator_data->{attestedCredentialData}->{aaguid},
         };
     }
     else {
