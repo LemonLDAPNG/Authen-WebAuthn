@@ -53,6 +53,7 @@ To authenticate a user:
             signature_b64          => ...,
             extension_results      => ...,
             token_binding_id_b64   => ...,
+            trust_anchors          => ...,
         )
     };
     if ($@) {
@@ -103,6 +104,25 @@ The base64url-encoded Token Binding ID for the current connection. Usually this
 comes from a C<Sec-Provided-Token-Binding-ID> HTTP header. If you are not using
 Token Binding, you can omit this parameter.
 
+=item trust_anchors
+
+If the authenticator response contains an attestation, C<validate_registration> will
+attempt to chain it to a trusted root certificate.
+You need to explicitely specify which certificates to trust if your authenticator provides an attestation.
+
+If you requested "none" as an attestation format while initiating the registration flow, there is no need to provide any trust anchors.
+
+This optional parameter can either be an arrayref of strings representing PEM-encoded certificates, or a subref which returns a arrayref of PEM-encoded certificates:
+
+    sub {
+        my (%params) = @_;
+        my $aaguid = $params{'aaguid'};
+        my $attestation_type = $params{'attestation_type'};
+        my $attestation_format = $params{'attestation_format'};
+        ...
+        return [ $pem1, $pem2, ...];
+    }
+
 =back
 
 This method croaks on errors. If the registration was successful, it returns a hashref with the following subkeys:
@@ -124,6 +144,32 @@ The initial signature count of this authenticator
 =back
 
 This information is supposed to be persisted in the Relying Party, usually in some sort of database
+
+The following keys are also returned:
+
+=over 4
+
+=item attestation_result
+
+Contains information about the result of the attestation validation
+
+=over 4
+
+=item type
+
+The type of attestation used by the authenticator: C<None>, C<Self>, C<Basic>, ...
+
+=item trust_path
+
+An arrayref of DER-encoded certificates provided by the authenticator
+
+=item aaguid
+
+The verified AAGUID of the authenticator, this is only provided if the attestation was verified successfully
+
+=back
+
+=back
 
 =method validate_assertion
 
