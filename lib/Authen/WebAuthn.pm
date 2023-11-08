@@ -906,7 +906,7 @@ sub attest_packed_x5c {
     if ( $attestation_verifier->( $sig, $signed_value ) ) {
         return {
             success    => 1,
-            type       => "Unsure",
+            type       => "Basic",
             trust_path => $attestation_statement->{x5c},
             aaguid => $authenticator_data->{attestedCredentialData}->{aaguid},
         };
@@ -1053,7 +1053,7 @@ sub attest_u2f {
     {
         return {
             success    => 1,
-            type       => "Unsure",
+            type       => "Basic",
             trust_path => $attestation_statement->{x5c},
         };
     }
