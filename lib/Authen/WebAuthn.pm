@@ -62,13 +62,16 @@ my $COSE_ALG = {
 sub validate_registration {
     my ( $self, %params ) = @_;
 
-    my ( $challenge_b64, $requested_uv,
+    my (
+        $challenge_b64,        $requested_uv,
         $client_data_json_b64, $attestation_object_b64,
-        $token_binding_id_b64, $trust_anchors )
+        $token_binding_id_b64, $trust_anchors,
+        $allowed_attestation_types
+      )
       = @params{ qw(
           challenge_b64        requested_uv
           client_data_json_b64 attestation_object_b64
-          token_binding_id_b64 trust_anchors
+          token_binding_id_b64 trust_anchors allowed_attestation_types
         )
       };
 
@@ -225,7 +228,8 @@ sub validate_registration {
 
     # 21. Assess the attestation trustworthiness using the outputs of the
     # verification procedure in step 19, as follows:
-    $self->check_attestation_trust( $attestation_result, $trust_anchors );
+    $self->check_attestation_trust( $attestation_result, $trust_anchors,
+        $allowed_attestation_types );
 
     # 22. Check that the credentialId is not yet registered to any other user
     # TODO
@@ -478,25 +482,27 @@ sub check_token_binding {
 }
 
 sub check_attestation_trust {
-    my ( $self, $attestation_result, $trust_anchors ) = @_;
+    my ( $self, $attestation_result, $trust_anchors,
+        $allowed_attestation_types )
+      = @_;
 
     # If no attestation was provided, verify that None attestation is acceptable
-    # under
-    # Relying Party policy.
-    if ( $attestation_result->{type} eq "None" ) {
-
-        # TODO
-        return 1;
-    }
-
+    # under Relying Party policy.
     # If self attestation was used, verify that self attestation is acceptable
     # under
-    # Relying Party policy.
-    if ( $attestation_result->{type} eq "Self" ) {
-
-        # TODO
-        return 1;
+    my $attestation_type = $attestation_result->{type};
+    if ( ref($allowed_attestation_types) eq "ARRAY"
+        and @$allowed_attestation_types )
+    {
+        if ( !grep { lc($_) eq lc($attestation_type) }
+            @$allowed_attestation_types )
+        {
+            croak("Attestation type $attestation_type is not allowed");
+        }
     }
+
+    return 1 if $attestation_type eq "Self";
+    return 1 if $attestation_type eq "None";
 
     #Otherwise, use the X.509 certificates returned as the attestation trust
     #path from the verification procedure to verify that the attestation public

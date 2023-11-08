@@ -123,6 +123,14 @@ This optional parameter can either be an arrayref of strings representing PEM-en
         return [ $pem1, $pem2, ...];
     }
 
+=item allowed_attestation_types
+
+If you want to restrict the allowed attestation types, you can pass an arrayref of strings as the C<allowed_attestation_types> parameter.
+
+Currently supported values are C<None>,C<Self>,C<Basic>
+
+By default, all attestation types are allowed
+
 =back
 
 This method croaks on errors. If the registration was successful, it returns a hashref with the following subkeys:
