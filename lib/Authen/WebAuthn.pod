@@ -108,7 +108,7 @@ Token Binding, you can omit this parameter.
 
 If the authenticator response contains an attestation, C<validate_registration> will
 attempt to chain it to a trusted root certificate.
-You need to explicitely specify which certificates to trust if your authenticator provides an attestation.
+You need to explicitly specify which certificates to trust if your authenticator provides an attestation.
 
 If you requested "none" as an attestation format while initiating the registration flow, there is no need to provide any trust anchors.
 
