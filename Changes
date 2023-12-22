@@ -1,0 +1,10 @@
+Revision history for Authen-WebAuthn
+ 
+0.002 2023-11-09
+  - Supported attestation types: none, packed, fido-u2f
+  - Mandatory attestation trust chain validation
+
+0.001 2022-01-21
+  - initial release
+  - Authentication and registration without attestation
+  - ECC/RSA keys supported
