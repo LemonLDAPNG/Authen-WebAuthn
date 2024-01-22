@@ -3,6 +3,7 @@ package Authen::WebAuthn::SSLeayChainVerifier;
 use warnings;
 use strict;
 use Net::SSLeay 1.88;
+Net::SSLeay::initialize();
 
 our $verification_time;
 
