@@ -8,7 +8,7 @@ use JSON qw(decode_json from_json to_json);
 use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
-use Crypt::OpenSSL::X509;
+use Crypt::OpenSSL::X509 1.808;
 use CBOR::XS;
 use URI;
 use Carp;
