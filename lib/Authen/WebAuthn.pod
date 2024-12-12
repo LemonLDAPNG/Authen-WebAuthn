@@ -143,6 +143,15 @@ This setting allows you to successfully validate registration, but change the
 type to C<Self> if a trusted certificate was not provided in the
 C<trust_anchors> parameter.
 
+=item allow_unknown_attestation_format
+
+By default, if an unimplemented attestation format is encountered, registration
+validation will fail.
+
+This setting allows you to successfully validate registration, but change the
+attestation type to C<None> if an unimplemented attestation format is
+encountered.
+
 =back
 
 This method croaks on errors. If the registration was successful, it returns a hashref with the following subkeys:
