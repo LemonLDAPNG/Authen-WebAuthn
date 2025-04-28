@@ -275,16 +275,12 @@ Relying Party.
 
 =head1 CAVEAT
 
-This module only supports the "None" attestation type at the moment, which
-means Relying Parties cannot have a strong guarantee of the authenticator's
-security properties. This makes it possible for users to register weak
-authenticators.
+This module only supports the "packed" and "fido-u2f" attestation format.
 
-Because of that, is it not recommended to use this module in passwordless
-authentication scenarios. However, it should be good enough for using security
-keys as a second factor.
+Additionaly, only RSA and ECDSA public key algorithms are supported.
 
-This limitation may be addressed in a future version.
+We plan to support additional attestation formats and algorithms in the future,
+given enough time and/or sponsorship.
 
 =head1 SEE ALSO
 
