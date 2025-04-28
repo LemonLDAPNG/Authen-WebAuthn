@@ -275,7 +275,8 @@ Relying Party.
 
 =head1 CAVEAT
 
-This module only supports the "packed" and "fido-u2f" attestation format.
+This module only supports the "none", "packed" and "fido-u2f" attestation
+format.
 
 Additionaly, only RSA and ECDSA public key algorithms are supported.
 
