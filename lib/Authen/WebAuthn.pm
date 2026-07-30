@@ -63,18 +63,18 @@ sub validate_registration {
     my ( $self, %params ) = @_;
 
     my (
-        $challenge_b64,             $requested_uv,
-        $client_data_json_b64,      $attestation_object_b64,
-        $token_binding_id_b64,      $trust_anchors,
-        $allowed_attestation_types, $allow_untrusted_attestation,
-        $allow_unknown_attestation_format,
+        $challenge_b64,                    $requested_uv,
+        $client_data_json_b64,             $attestation_object_b64,
+        $token_binding_id_b64,             $trust_anchors,
+        $allowed_attestation_types,        $allow_untrusted_attestation,
+        $allow_unknown_attestation_format, $allow_absent_user_presence,
       )
       = @params{ qw(
           challenge_b64        requested_uv
           client_data_json_b64 attestation_object_b64
           token_binding_id_b64 trust_anchors
           allowed_attestation_types allow_untrusted_attestation
-          allow_unknown_attestation_format
+          allow_unknown_attestation_format allow_absent_user_presence
         )
       };
 
@@ -155,7 +155,14 @@ sub validate_registration {
     }
 
     # 14. Verify that the User Present bit of the flags in authData is set.
-    unless ( $authenticator_data->{flags}->{userPresent} == 1 ) {
+    #
+    # A conditional create (automatic passkey upgrade) performs no ceremony at
+    # the authenticator, so this bit is clear by design; the client guarantees
+    # presence instead. Only a Relying Party that asked for a conditional
+    # creation knows that applies, hence allow_absent_user_presence is opt-in.
+    unless ( $allow_absent_user_presence
+        or $authenticator_data->{flags}->{userPresent} == 1 )
+    {
         croak("User not present during WebAuthn registration");
     }
 
