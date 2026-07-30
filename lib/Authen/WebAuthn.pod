@@ -152,6 +152,24 @@ This setting allows you to successfully validate registration, but change the
 attestation type to C<None> if an unimplemented attestation format is
 encountered.
 
+=item allow_absent_user_presence
+
+By default, if the User Present bit of the flags in authData is not set,
+registration validation will fail, as mandated by the WebAuthn specification.
+
+However, a conditional create (C<navigator.credentials.create()> with
+C<mediation> set to C<"conditional">, the mechanism behind automatic passkey
+upgrades) performs no ceremony at the authenticator, so the bit is clear by
+design. The presence guarantee comes from the client instead, which performs
+the upgrade only immediately after its own password manager has handled a
+sign-in for the origin.
+
+This setting allows you to successfully validate such a registration. Set it
+only when validating the response to a creation your application itself
+requested conditionally, never for an ordinary registration: user presence is
+what distinguishes a credential the user deliberately created from one minted
+without their involvement.
+
 =back
 
 This method croaks on errors. If the registration was successful, it returns a hashref with the following subkeys:

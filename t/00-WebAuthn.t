@@ -169,6 +169,46 @@ test_registration(
     qr,User not verified during WebAuthn registration,
 );
 
+# A conditional create performs no ceremony at the authenticator, so it reports
+# no user presence. That is rejected unless the RP says it asked for one.
+test_registration(
+    {},
+    {
+        response => {
+            attestationObject =>
+              { authData => { flags => { userPresent => 0 } } }
+        }
+    },
+    "Fail when authenticator does not report user presence",
+    qr,User not present during WebAuthn registration,
+);
+
+test_registration(
+    { allow_absent_user_presence => 1 },
+    {
+        response => {
+            attestationObject =>
+              { authData => { flags => { userPresent => 0 } } }
+        }
+    },
+    "Success without user presence when allow_absent_user_presence is set",
+);
+
+# The option relaxes only that one check; everything else still applies.
+test_registration(
+    { allow_absent_user_presence => 1, requested_uv => "required" },
+    {
+        response => {
+            attestationObject => {
+                authData =>
+                  { flags => { userPresent => 0, userVerified => 0 } }
+            }
+        }
+    },
+    "Required UV is still enforced without user presence",
+    qr,User not verified during WebAuthn registration,
+);
+
 $authenticator->rp_id('invalid');
 test_registration( {}, {}, "Fails with wrong RP ID",
 qr,RP ID hash received from authenticator.*does not match the hash of this RP ID,
