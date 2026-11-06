@@ -108,11 +108,17 @@ sub validate_registration {
         croak("Empty origin in client data");
     }
 
-    unless ( $client_data->{origin} eq $self->origin ) {
+    my $origins = ref $self->origin? $self->origin: [ $self->origin ];
+    my $matched_origin;
+    for my $origin (@$origins) {
+        next unless $client_data->{origin} eq $origin;
+        $matched_origin = $origin;
+    }
+    unless ( $matched_origin ) {
         croak(  "Origin received from client data "
               . "($client_data->{origin}) "
-              . "does not match server origin " . "("
-              . $self->origin
+              . "does not match any server origin(s) " . "("
+              . join(',', @$origins)
               . ")" );
     }
 
@@ -326,11 +332,17 @@ sub validate_assertion {
         croak("Empty origin");
     }
 
-    unless ( $client_data->{origin} eq $self->origin ) {
+    my $origins = ref $self->origin? $self->origin: [ $self->origin ];
+    my $matched_origin;
+    for my $origin (@$origins) {
+        next unless $client_data->{origin} eq $origin;
+        $matched_origin = $origin;
+    }
+    unless ( $matched_origin ) {
         croak(  "Origin received from client data "
               . "($client_data->{origin}) "
-              . "does not match server origin " . "("
-              . $self->origin
+              . "does not match any server origin(s) " . "("
+              . join(',', @$origins)
               . ")" );
     }
 
@@ -349,7 +361,7 @@ sub validate_assertion {
 
     my $hash_rp_id;
     if ( $extension_results->{appid} ) {
-        $hash_rp_id = sha256( $self->origin );
+        $hash_rp_id = sha256( $matched_origin );
     }
     else {
         $hash_rp_id = sha256( $self->rp_id );

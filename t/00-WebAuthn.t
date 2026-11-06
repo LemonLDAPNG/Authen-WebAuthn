@@ -179,7 +179,7 @@ $authenticator->origin('invalid');
 test_registration(
     {}, {},
     "Fails with wrong Origin",
-    qr,Origin received from client data.*does not match server origin,
+    qr,Origin received from client data.*does not match any server origin,
 );
 $authenticator->origin('http://auth.example.com');
 
@@ -218,7 +218,7 @@ $authenticator->origin('invalid');
 test_authentication(
     {}, {},
     "Fails with wrong Origin",
-    qr,Origin received from client data.*does not match server origin,
+    qr,Origin received from client data.*does not match any server origin,
 );
 $authenticator->origin('http://auth.example.com');
 
