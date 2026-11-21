@@ -1,39 +1,49 @@
 Revision history for Authen-WebAuthn
  
 Unreleased
-  - Decode client-supplied CBOR with CBOR::XS->new_safe, so that a tagged
-    value cannot instantiate a Perl object
-  - Fix PS256 signature verification (32 byte salt)
-  - Fix trust_anchors given as a code reference, which was always refused
-  - Support ES384, ES512 and EdDSA (Ed25519) credential keys, and
-    Ed25519 attestation certificates
-  - Add allowed_algs option to validate_registration
-  - origin can be an arrayref of accepted origins (Frank Carnovale)
-  - Refuse cross-origin requests unless allow_cross_origin is set
-    (behaviour change)
-  - Add appid option to validate_assertion, for AppIDs other than the
-    origin
-  - Add generate_registration_options and generate_assertion_options
-  - Return user_verified, backup_eligible and backup_state
-  - Reject a Backup State flag without Backup Eligibility
-  - Reject credential IDs longer than 1023 bytes
-  - At registration, reject a credential public key that does not parse,
-    whose key type does not match its algorithm, or an RSA key under 2048
-    bits
-  - Malformed input is refused with a message of its own, without Perl
-    warnings, and CBOR tags are refused
-  - Authen::WebAuthn::Test produces RSA, P-384, P-521 and Ed25519 keys,
-    and packed self attestation
-  - A test PKI (t/pki) and certificate attestation in
-    Authen::WebAuthn::Test, both packed and fido-u2f
-  - Authen::WebAuthn::Test encodes CBOR canonically, as authenticators do
-  - xt/valgrind.t runs the tests under valgrind's memcheck, if installed
-  - Report a missing Basic Constraints extension in a packed attestation
-    certificate, which failed with a Perl error
-  - Tests reach every statement; the few that cannot be reached are
-    marked uncoverable
+  [Behaviour changes]
+  - Cross-origin requests (crossOrigin in the client data) are refused
+    unless the new allow_cross_origin attribute allows them
+  - At registration, a credential public key is refused if it does not
+    parse, if its key type does not match its algorithm, or if it is an
+    RSA key under 2048 bits
   - Token Binding is no longer checked, as no browser supports it and
     WebAuthn Level 3 removed it; token_binding_id_b64 is ignored
+
+  [Fixes]
+  - Client-supplied CBOR is decoded safely: a value tagged as a Perl
+    object made the decoder call THAW on the class it named. CBOR tags
+    are now refused
+  - PS256 signatures did not verify (wrong salt length)
+  - trust_anchors given as a code reference was always refused
+  - Ed25519 attestation certificates were refused
+  - Malformed input is refused with this module's own messages, not Perl
+    errors and warnings; this includes a packed attestation certificate
+    without Basic Constraints
+  - Authenticator data with Backup State but not Backup Eligibility, and
+    credential IDs over 1023 bytes, are refused, as WebAuthn Level 3
+    requires
+
+  [New]
+  - ES384, ES512 and EdDSA (Ed25519) credential keys
+  - origin can be an arrayref of accepted origins (Frank Carnovale)
+  - generate_registration_options and generate_assertion_options
+  - allowed_algs option to validate_registration
+  - appid option to validate_assertion, for U2F AppIDs other than the
+    origin
+  - validate_registration and validate_assertion return user_verified,
+    backup_eligible and backup_state
+
+  [Authen::WebAuthn::Test]
+  - Produces RSA, P-384, P-521 and Ed25519 keys
+  - Packed attestation, self or with a certificate, and fido-u2f
+    attestation
+  - Encodes CBOR canonically, as authenticators do
+
+  [Tests]
+  - A test PKI in t/pki, and tests reaching every statement
+  - xt/valgrind.t runs the tests under valgrind's memcheck when it is
+    installed
 
 0.005
   - Add allow_unknown_attestation_format option
