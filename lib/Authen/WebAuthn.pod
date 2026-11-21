@@ -76,6 +76,15 @@ it (C<android:apk-key-hash:...>), and a development build is not signed with
 the same key as the release.
 
 
+=attr allow_cross_origin
+
+WebAuthn can be used from an iframe whose origin differs from the top-level
+page's, if the page allows it. By default such requests are refused
+(C<crossOrigin> is true in the client data).
+
+Set this to 1 to accept them, or to an arrayref of the top-level origins you
+accept, which are compared with C<topOrigin> in the client data.
+
 =method generate_registration_options
 
     my $options = $webauthn_rp->generate_registration_options(
@@ -381,6 +390,13 @@ The base64url-encoded signature received from the authenticator
 =item extension_results
 
 A hashref containing extension results received from the authenticator
+
+=item appid
+
+The AppID you passed in the C<appid> extension, if you did, for credentials
+registered with the FIDO U2F API. When C<< extension_results->{appid} >> is
+true, the authenticator data must carry the hash of this AppID instead of the
+RP ID. Defaults to the origin that matched, as in earlier versions.
 
 =back
 

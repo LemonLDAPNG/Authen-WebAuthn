@@ -19,6 +19,9 @@ use Authen::WebAuthn::SSLeayChainVerifier;
 has rp_id  => ( is => 'rw', required => 1 );
 has origin => ( is => 'rw', required => 1 );
 
+# 1 to accept any cross-origin iframe, or an arrayref of allowed top origins
+has allow_cross_origin => ( is => 'rw', default => 0 );
+
 my $ATTESTATION_FUNCTIONS = {
     none       => \&attest_none,
     packed     => \&attest_packed,
@@ -230,6 +233,7 @@ sub validate_registration {
     }
 
     my $matched_origin = $self->_check_origin( $client_data->{origin} );
+    $self->_check_cross_origin($client_data);
 
     # 11. Let hash be the result of computing a hash over
     # response.clientDataJSON using SHA-256.
@@ -393,6 +397,28 @@ sub _check_origin {
           . ")" );
 }
 
+# WebAuthn Level 3, step 10 of registration and 14 of authentication
+sub _check_cross_origin {
+    my ( $self, $client_data ) = @_;
+
+    return unless $client_data->{crossOrigin};
+
+    my $allowed = $self->allow_cross_origin;
+    croak("Cross-origin requests are not allowed") unless $allowed;
+
+    if ( ref($allowed) eq "ARRAY" ) {
+        my $top_origin = $client_data->{topOrigin};
+        unless ( defined $top_origin
+            and grep { $_ eq $top_origin } @$allowed )
+        {
+            croak(  "Top origin "
+                  . ( $top_origin // "(none)" )
+                  . " is not allowed" );
+        }
+    }
+    return;
+}
+
 sub validate_assertion {
     my ( $self, %params ) = @_;
     my (
@@ -400,13 +426,14 @@ sub validate_assertion {
         $stored_sign_count,    $requested_uv,
         $client_data_json_b64, $authenticator_data_b64,
         $signature_b64,        $extension_results,
+        $appid,
       )
       = @params{
         qw(challenge_b64  credential_pubkey_b64
           stored_sign_count  requested_uv
           client_data_json_b64 authenticator_data_b64
           signature_b64 extension_results
-)
+          appid)
       };
 
     # 7. Using credential.id (or credential.rawId, if base64url encoding is
@@ -456,6 +483,7 @@ sub validate_assertion {
     }
 
     my $matched_origin = $self->_check_origin( $client_data->{origin} );
+    $self->_check_cross_origin($client_data);
 
     # 15. Verify that the rpIdHash in authData is the SHA-256 hash of the RP ID
     # expected by the Relying Party.
@@ -464,7 +492,7 @@ sub validate_assertion {
 
     my $hash_rp_id;
     if ( $extension_results->{appid} ) {
-        $hash_rp_id = sha256( $matched_origin );
+        $hash_rp_id = sha256( $appid // $matched_origin );
     }
     else {
         $hash_rp_id = sha256( $self->rp_id );
