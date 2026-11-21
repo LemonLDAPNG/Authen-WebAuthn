@@ -8,6 +8,7 @@ use JSON qw(decode_json from_json to_json);
 use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
+use Crypt::PK::Ed25519;
 use Crypt::OpenSSL::X509 1.808;
 use CBOR::XS 1.6 ();
 use URI;
@@ -33,14 +34,40 @@ my $KEY_TYPES = {
         parse_pem     => \&parse_rsa_pem,
         parse_cose    => \&parse_rsa_cose,
         make_verifier => \&make_cryptx_verifier,
+    },
+    OKP => {
+        parse_pem     => \&parse_okp_pem,
+        parse_cose    => \&parse_okp_cose,
+        make_verifier => \&make_cryptx_verifier,
     }
 };
 
 my $COSE_ALG = {
+    # curve is the COSE elliptic curve identifier the key must use
+    # https://www.w3.org/TR/webauthn-3/#sctn-alg-identifier
     -7 => {
         name              => "ES256",
         key_type          => "ECC",
+        curve             => 1,
         signature_options => ["SHA256"]
+    },
+    -35 => {
+        name              => "ES384",
+        key_type          => "ECC",
+        curve             => 2,
+        signature_options => ["SHA384"]
+    },
+    -36 => {
+        name              => "ES512",
+        key_type          => "ECC",
+        curve             => 3,
+        signature_options => ["SHA512"]
+    },
+    -8 => {
+        name              => "EdDSA",
+        key_type          => "OKP",
+        curve             => 6,
+        signature_options => []
     },
     -257 => {
         name              => "RS256",
@@ -632,7 +659,8 @@ sub parse_ecc_cose {
     my $curve       = $cose_struct->{-1};
     my $x           = $cose_struct->{-2};
     my $y           = $cose_struct->{-3};
-    my $id_to_curve = { 1 => 'secp256r1', };
+    my $id_to_curve =
+      { 1 => 'secp256r1', 2 => 'secp384r1', 3 => 'secp521r1', };
 
     my $pk         = Crypt::PK::ECC->new();
     my $curve_name = $id_to_curve->{$curve};
@@ -659,6 +687,27 @@ sub make_cryptx_verifier {
         return $public_key->verify_message( $signature, $message,
             @signature_options );
     };
+}
+
+# Octet Key Pair (RFC 8152, section 13.2). Only Ed25519 is supported
+sub parse_okp_cose {
+    my ($cose_struct) = @_;
+
+    my $curve = $cose_struct->{-1};
+    unless ( $curve == 6 ) {
+        croak "Unsupported curve $curve";
+    }
+
+    my $pk = Crypt::PK::Ed25519->new();
+    $pk->import_key_raw( $cose_struct->{-2}, 'public' );
+    return $pk;
+}
+
+sub parse_okp_pem {
+    my ($pem) = @_;
+    my $pk = Crypt::PK::Ed25519->new();
+    $pk->import_key( \$pem );
+    return $pk;
 }
 
 sub parse_ecc_pem {
@@ -737,6 +786,13 @@ sub getPubKeyVerifier {
     my $cose_key = _decode_cbor($pubkey_cose);
 
     my $alg_num = $cose_key->{3};
+
+    # An algorithm is tied to one curve: ES256 with a P-384 key is not ES256
+    my $curve = $COSE_ALG->{$alg_num} && $COSE_ALG->{$alg_num}->{curve};
+    if ( $curve and $cose_key->{-1} != $curve ) {
+        croak "Curve $cose_key->{-1} cannot be used with algorithm $alg_num";
+    }
+
     return get_verifier_for_alg( $alg_num, $cose_key, "parse_cose" );
 }
 

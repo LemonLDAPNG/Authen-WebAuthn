@@ -317,7 +317,8 @@ Relying Party.
 This module only supports the "none", "packed" and "fido-u2f" attestation
 format.
 
-Additionaly, only RSA and ECDSA public key algorithms are supported.
+The supported public key algorithms are ES256, ES384, ES512, EdDSA (Ed25519),
+RS256, PS256 and RS1.
 
 We plan to support additional attestation formats and algorithms in the future,
 given enough time and/or sponsorship.
