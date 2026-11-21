@@ -1,0 +1,55 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Perl ${{ matrix.perl }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        perl: ["5.20", "5.26", "5.32", "5.40"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: ${{ matrix.perl }}
+          install-modules-with: cpanm
+          install-modules-args: --notest
+          install-modules: |
+            CBOR::XS
+            Crypt::OpenSSL::X509
+            Crypt::URandom
+            CryptX
+            Hash::Merge::Simple
+            JSON
+            Mouse
+            Net::SSLeay
+            URI
+      - run: prove -l t
+
+  valgrind:
+    name: valgrind
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y valgrind
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: "5.40"
+          install-modules-with: cpanm
+          install-modules-args: --notest
+          install-modules: |
+            CBOR::XS
+            Crypt::OpenSSL::X509
+            Crypt::URandom
+            CryptX
+            Hash::Merge::Simple
+            JSON
+            Mouse
+            Net::SSLeay
+            URI
+      - run: prove -lv xt/valgrind.t

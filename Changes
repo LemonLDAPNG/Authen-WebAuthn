@@ -44,6 +44,8 @@ Unreleased
   - A test PKI in t/pki, and tests reaching every statement
   - xt/valgrind.t runs the tests under valgrind's memcheck when it is
     installed
+  - GitHub Actions runs the tests on Perl 5.20 to 5.40, and under
+    valgrind
 
 0.005
   - Add allow_unknown_attestation_format option
