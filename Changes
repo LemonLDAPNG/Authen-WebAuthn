@@ -26,6 +26,8 @@ Unreleased
     and packed self attestation
   - A test PKI (t/pki) and certificate attestation in
     Authen::WebAuthn::Test, both packed and fido-u2f
+  - Authen::WebAuthn::Test encodes CBOR canonically, as authenticators do
+  - xt/valgrind.t runs the tests under valgrind's memcheck, if installed
   - Report a missing Basic Constraints extension in a packed attestation
     certificate, which failed with a Perl error
   - Tests reach every statement; the few that cannot be reached are
