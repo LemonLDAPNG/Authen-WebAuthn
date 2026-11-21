@@ -17,18 +17,11 @@ jobs:
       - uses: shogo82148/actions-setup-perl@v1
         with:
           perl-version: ${{ matrix.perl }}
-          install-modules-with: cpanm
-          install-modules-args: --notest
-          install-modules: |
-            CBOR::XS
-            Crypt::OpenSSL::X509
-            Crypt::URandom
-            CryptX
-            Hash::Merge::Simple
-            JSON
-            Mouse
-            Net::SSLeay
-            URI
+      - name: Install dependencies
+        run: >-
+          cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
+          Hash::Merge::Simple JSON Mouse Net::SSLeay URI
+          || { cat ~/.cpanm/build.log; exit 1; }
       - run: prove -l t
 
   valgrind:
@@ -40,18 +33,11 @@ jobs:
       - uses: shogo82148/actions-setup-perl@v1
         with:
           perl-version: "5.40"
-          install-modules-with: cpanm
-          install-modules-args: --notest
-          install-modules: |
-            CBOR::XS
-            Crypt::OpenSSL::X509
-            Crypt::URandom
-            CryptX
-            Hash::Merge::Simple
-            JSON
-            Mouse
-            Net::SSLeay
-            URI
+      - name: Install dependencies
+        run: >-
+          cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
+          Hash::Merge::Simple JSON Mouse Net::SSLeay URI
+          || { cat ~/.cpanm/build.log; exit 1; }
       - run: prove -lv xt/valgrind.t
 
   dist:
