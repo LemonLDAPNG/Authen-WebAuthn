@@ -43,6 +43,25 @@ jobs:
           || { cat ~/.cpanm/build.log; exit 1; }
       - run: prove -lv xt/valgrind.t
 
+  differential:
+    name: py_webauthn
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: "5.40"
+      - name: Install dependencies
+        run: >-
+          cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
+          Hash::Merge::Simple JSON Mouse Net::SSLeay URI
+          || { cat ~/.cpanm/build.log; exit 1; }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install webauthn
+      - run: prove -lv xt/differential.t
+
   dist:
     name: dzil build
     runs-on: ubuntu-latest
