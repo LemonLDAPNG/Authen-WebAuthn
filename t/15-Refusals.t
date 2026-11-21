@@ -43,9 +43,8 @@ sub register {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
             %{ $options || {} },
         );
     };
@@ -87,12 +86,21 @@ sub refused {
 }
 
 subtest "Registration" => sub {
-    refused( register( undef, client_data( type => "webauthn.get" ) ),
-        qr/Type is not webauthn.create/, "Wrong client data type" );
-    refused( register( { challenge_b64 => "" } ),
-        qr/Empty registration challenge/, "No challenge" );
-    refused( register( undef, client_data( origin => "" ) ),
-        qr/Empty origin in client data/, "No origin" );
+    refused(
+        register( undef, client_data( type => "webauthn.get" ) ),
+        qr/Type is not webauthn.create/,
+        "Wrong client data type"
+    );
+    refused(
+        register( { challenge_b64 => "" } ),
+        qr/Empty registration challenge/,
+        "No challenge"
+    );
+    refused(
+        register( undef, client_data( origin => "" ) ),
+        qr/Empty origin in client data/,
+        "No origin"
+    );
     refused(
         register( undef, registration_data( flags => { userPresent => 0 } ) ),
         qr/User not present during WebAuthn registration/,
@@ -114,9 +122,8 @@ subtest "Registration" => sub {
             undef,
             registration_data(
                 attestedCredentialData => {
-                    credentialPublicKey => CBOR::XS::encode_cbor(
-                        { 1 => 2, 3 => -999, -1 => 1 }
-                    )
+                    credentialPublicKey =>
+                      CBOR::XS::encode_cbor( { 1 => 2, 3 => -999, -1 => 1 } )
                 }
             )
         ),
@@ -126,21 +133,36 @@ subtest "Registration" => sub {
 };
 
 subtest "Authentication" => sub {
-    refused( scalar authenticate( client_data( type => "webauthn.create" ) ),
-        qr/Type is not webauthn.get/, "Wrong client data type" );
-    refused( scalar authenticate( undef, challenge_b64 => "" ),
-        qr/Empty authentication challenge/, "No challenge" );
-    refused( scalar authenticate( client_data( origin => "" ) ),
-        qr/Empty origin/, "No origin" );
+    refused(
+        scalar authenticate( client_data( type => "webauthn.create" ) ),
+        qr/Type is not webauthn.get/,
+        "Wrong client data type"
+    );
+    refused(
+        scalar authenticate( undef, challenge_b64 => "" ),
+        qr/Empty authentication challenge/,
+        "No challenge"
+    );
+    refused(
+        scalar authenticate( client_data( origin => "" ) ),
+        qr/Empty origin/,
+        "No origin"
+    );
 
     my $unknown_alg = encode_base64url(
         CBOR::XS::encode_cbor(
-            { 1 => 2, 3 => -999, -1 => 1, -2 => "\x01" x 32, -3 => "\x02" x 32 }
+            {
+                1  =>  2,
+                3  => -999,
+                -1 =>  1,
+                -2 => "\x01" x 32,
+                -3 => "\x02" x 32
+            }
         )
     );
     refused(
         scalar authenticate( undef, credential_pubkey_b64 => $unknown_alg ),
-        qr/Cannot get signature validator for assertion: Unsupported algorithm -999/,
+qr/Cannot get signature validator for assertion: Unsupported algorithm -999/,
         "A stored key with an unsupported algorithm"
     );
 };

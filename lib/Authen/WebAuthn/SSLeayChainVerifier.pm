@@ -31,8 +31,8 @@ sub getX509 {
                 return $x509;
             }
             else {
-                my $error = Net::SSLeay::ERR_error_string(
-                    Net::SSLeay::ERR_get_error() );
+                my $error =
+                  Net::SSLeay::ERR_error_string( Net::SSLeay::ERR_get_error() );
                 Net::SSLeay::ERR_clear_error();
                 die "Could not parse certificate: $error";
             }

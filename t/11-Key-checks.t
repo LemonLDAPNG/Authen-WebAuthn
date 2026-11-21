@@ -44,9 +44,8 @@ sub register {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
             %{ $options || {} },
         );
     };
@@ -81,8 +80,7 @@ sub with_key {
         response => {
             attestationObject => {
                 authData => {
-                    attestedCredentialData =>
-                      { credentialPublicKey => $cose }
+                    attestedCredentialData => { credentialPublicKey => $cose }
                 }
             }
         }
@@ -94,8 +92,9 @@ sub rsa_key {
     my $key = Crypt::PK::RSA->new;
     $key->generate_key( $bytes, 65537 );
     my $hash = $key->key2hash;
-    return CBOR::XS::encode_cbor( {
-            1  => 3,
+    return CBOR::XS::encode_cbor(
+        {
+            1  =>  3,
             3  => -257,
             -1 => pack( "H*", $hash->{N} ),
             -2 => pack( "H*", $hash->{e} ),
@@ -110,7 +109,13 @@ ok(
         undef,
         with_key(
             CBOR::XS::encode_cbor(
-                { 1 => 2, 3 => -7, -1 => 1, -2 => "\x01" x 32, -3 => "\x02" x 32 }
+                {
+                    1  =>  2,
+                    3  => -7,
+                    -1 =>  1,
+                    -2 => "\x01" x 32,
+                    -3 => "\x02" x 32
+                }
             )
         )
     ),
@@ -123,21 +128,33 @@ ok(
         undef,
         with_key(
             CBOR::XS::encode_cbor(
-                { 1 => 1, 3 => -7, -1 => 1, -2 => "\x01" x 32, -3 => "\x02" x 32 }
+                {
+                    1  =>  1,
+                    3  => -7,
+                    -1 =>  1,
+                    -2 => "\x01" x 32,
+                    -3 => "\x02" x 32
+                }
             )
         )
     ),
     "An OKP key claiming ES256 is refused"
 );
-like( $@, qr/Key type 1 cannot be used with algorithm -7/,
-    "With the expected message" );
+like(
+    $@,
+    qr/Key type 1 cannot be used with algorithm -7/,
+    "With the expected message"
+);
 
 ok( register( undef, with_key( rsa_key(256) ) ),
     "A 2048 bit RSA key is accepted" );
 
 ok( !register( undef, with_key( rsa_key(128) ) ),
     "A 1024 bit RSA key is refused" );
-like( $@, qr/RSA key of 1024 bits is too short \(min: 2048\)/,
-    "With the expected message" );
+like(
+    $@,
+    qr/RSA key of 1024 bits is too short \(min: 2048\)/,
+    "With the expected message"
+);
 
 done_testing();

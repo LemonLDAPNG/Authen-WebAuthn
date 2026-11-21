@@ -10,7 +10,7 @@ use Authen::WebAuthn;
 sub cbor_int {
     my ($n) = @_;
     my ( $major, $value ) = $n < 0 ? ( 0x20, -1 - $n ) : ( 0x00, $n );
-    return pack( "C", $major + $value ) if $value < 24;
+    return pack( "C",  $major + $value ) if $value < 24;
     return pack( "CC", $major + 24, $value ) if $value < 256;
     return pack( "Cn", $major + 25, $value );
 }
@@ -18,7 +18,7 @@ sub cbor_int {
 sub cbor_bstr {
     my ($bytes) = @_;
     my $length = length($bytes);
-    return pack( "C", 0x40 + $length ) . $bytes if $length < 24;
+    return pack( "C",  0x40 + $length ) . $bytes if $length < 24;
     return pack( "CC", 0x58, $length ) . $bytes if $length < 256;
     return pack( "Cn", 0x59, $length ) . $bytes;
 }
@@ -36,7 +36,7 @@ sub rsa_cose_key {
     my ( $key, $alg ) = @_;
     my $hash = $key->key2hash;
     return cose_key(
-        1  => cbor_int(3),                               # kty RSA
+        1  => cbor_int(3),      # kty RSA
         3  => cbor_int($alg),
         -1 => cbor_bstr( pack( "H*", $hash->{N} ) ),
         -2 => cbor_bstr( pack( "H*", $hash->{e} ) ),
@@ -47,11 +47,15 @@ sub ecc_cose_key {
     my ( $key, $alg, $curve, $size ) = @_;
     my $hash = $key->key2hash;
     return cose_key(
-        1  => cbor_int(2),                               # kty EC2
+        1  => cbor_int(2),        # kty EC2
         3  => cbor_int($alg),
         -1 => cbor_int($curve),
-        -2 => cbor_bstr( pack( "H*", sprintf( "%0*s", $size * 2, $hash->{pub_x} ) ) ),
-        -3 => cbor_bstr( pack( "H*", sprintf( "%0*s", $size * 2, $hash->{pub_y} ) ) ),
+        -2 => cbor_bstr(
+            pack( "H*", sprintf( "%0*s", $size * 2, $hash->{pub_x} ) )
+        ),
+        -3 => cbor_bstr(
+            pack( "H*", sprintf( "%0*s", $size * 2, $hash->{pub_y} ) )
+        ),
     );
 }
 
@@ -131,8 +135,7 @@ subtest "An algorithm is tied to its curve" => sub {
     $key->generate_key("secp384r1");
 
     eval {
-        Authen::WebAuthn::getPubKeyVerifier(
-            ecc_cose_key( $key, -7, 2, 48 ) );
+        Authen::WebAuthn::getPubKeyVerifier( ecc_cose_key( $key, -7, 2, 48 ) );
     };
     like(
         $@,
@@ -146,9 +149,9 @@ subtest "EdDSA" => sub {
     $key->generate_key;
 
     my $cose = cose_key(
-        1  => cbor_int(1),                                    # kty OKP
+        1  => cbor_int( 1),                                  # kty OKP
         3  => cbor_int(-8),
-        -1 => cbor_int(6),                                    # Ed25519
+        -1 => cbor_int( 6),                                  # Ed25519
         -2 => cbor_bstr( $key->export_key_raw("public") ),
     );
     my $verifier = Authen::WebAuthn::getPubKeyVerifier($cose);
@@ -159,14 +162,17 @@ subtest "EdDSA" => sub {
         "Signature of another message is not" );
 
     my $other_curve = cose_key(
-        1  => cbor_int(1),
+        1  => cbor_int( 1),
         3  => cbor_int(-8),
-        -1 => cbor_int(7),                                    # Ed448
+        -1 => cbor_int( 7),                                  # Ed448
         -2 => cbor_bstr( $key->export_key_raw("public") ),
     );
     eval { Authen::WebAuthn::getPubKeyVerifier($other_curve) };
-    like( $@, qr/Curve 7 cannot be used with algorithm -8/,
-        "Another curve is refused" );
+    like(
+        $@,
+        qr/Curve 7 cannot be used with algorithm -8/,
+        "Another curve is refused"
+    );
 };
 
 done_testing();

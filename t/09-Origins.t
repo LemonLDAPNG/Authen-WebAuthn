@@ -42,9 +42,8 @@ sub register {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
             %{ $options || {} },
         );
     };
@@ -83,7 +82,7 @@ $authenticator->origin("http://evil.example.com");
 ok( !register(), "Registration from another origin fails" );
 like(
     $@,
-    qr/\(http:\/\/evil.example.com\) does not match any server origin\(s\) \(android:apk-key-hash:abc,http:\/\/auth.example.com\)/,
+qr/\(http:\/\/evil.example.com\) does not match any server origin\(s\) \(android:apk-key-hash:abc,http:\/\/auth.example.com\)/,
     "And names every accepted origin"
 );
 ok( !authenticate(), "Authentication from another origin fails" );

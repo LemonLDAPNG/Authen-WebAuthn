@@ -65,9 +65,8 @@ sub register {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
         );
     };
 }
@@ -153,7 +152,7 @@ subtest "Self attestation is verified" => sub {
     );
     like(
         $@,
-        qr/Attestation algorithm RS256 does not match credential key type ES256/,
+qr/Attestation algorithm RS256 does not match credential key type ES256/,
         "With the expected message"
     );
 };

@@ -2,7 +2,7 @@ use Test::More;
 use Crypt::PK::ECC;
 use Crypt::PK::Ed25519;
 use Crypt::PK::RSA;
-use JSON qw(decode_json);
+use JSON         qw(decode_json);
 use MIME::Base64 qw(encode_base64url decode_base64url);
 use strict;
 
@@ -27,25 +27,31 @@ subtest "convert_raw_ecc_to_cose" => sub {
         )
     );
     my $verifier = Authen::WebAuthn::getPubKeyVerifier($cose);
-    ok( $verifier->( $key->sign_message( $message, "SHA256" ), $message ),
-        "A U2F key converted to COSE verifies its signatures" );
+    ok(
+        $verifier->( $key->sign_message( $message, "SHA256" ), $message ),
+        "A U2F key converted to COSE verifies its signatures"
+    );
 };
 
 # Attestation certificates hold PEM keys
 subtest "getPEMPubKeyVerifier" => sub {
     my $rsa = Crypt::PK::RSA->new;
     $rsa->generate_key( 256, 65537 );
-    my $verifier = Authen::WebAuthn::getPEMPubKeyVerifier(
-        $rsa->export_key_pem("public"), -257 );
-    ok( $verifier->( $rsa->sign_message( $message, "SHA256", "v1.5" ), $message ),
-        "RSA" );
+    my $verifier =
+      Authen::WebAuthn::getPEMPubKeyVerifier( $rsa->export_key_pem("public"),
+        -257 );
+    ok(
+        $verifier->(
+            $rsa->sign_message( $message, "SHA256", "v1.5" ), $message
+        ),
+        "RSA"
+    );
 
     my $ed25519 = Crypt::PK::Ed25519->new;
     $ed25519->generate_key;
     $verifier = Authen::WebAuthn::getPEMPubKeyVerifier(
         $ed25519->export_key_pem("public"), -8 );
-    ok( $verifier->( $ed25519->sign_message($message), $message ),
-        "Ed25519" );
+    ok( $verifier->( $ed25519->sign_message($message), $message ), "Ed25519" );
 };
 
 subtest "Refusals of the key helpers" => sub {
@@ -113,8 +119,8 @@ subtest "Simulator" => sub {
           qw(clientDataJSON authenticatorData signature)
     );
     my $json = decode_json( $authenticator->encode_credential($assertion) );
-    is( decode_base64url( $json->{rawId} ), $raw{rawId},
-        "encode_credential encodes rawId" );
+    is( decode_base64url( $json->{rawId} ),
+        $raw{rawId}, "encode_credential encodes rawId" );
     is( decode_base64url( $json->{response}->{$_} ),
         $raw{$_}, "encode_credential encodes $_" )
       for qw(clientDataJSON authenticatorData signature);

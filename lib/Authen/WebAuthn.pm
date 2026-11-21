@@ -47,6 +47,7 @@ my $KEY_TYPES = {
 };
 
 my $COSE_ALG = {
+
     # curve is the COSE elliptic curve identifier the key must use
     # https://www.w3.org/TR/webauthn-3/#sctn-alg-identifier
     -7 => {
@@ -118,14 +119,13 @@ sub generate_registration_options {
         challenge        => $params{challenge_b64} // _generate_challenge(),
         pubKeyCredParams =>
           [ map { { type => "public-key", alg => $_ + 0 } } @$algs ],
-        attestation            => $params{attestation} // "none",
-        excludeCredentials     =>
+        attestation        => $params{attestation} // "none",
+        excludeCredentials =>
           _credential_descriptors( $params{exclude_credentials} ),
         authenticatorSelection => {
             userVerification => $params{requested_uv} // "preferred",
             (
-                $params{resident_key}
-                ? ( residentKey => $params{resident_key} )
+                $params{resident_key} ? ( residentKey => $params{resident_key} )
                 : ()
             ),
             (
@@ -147,7 +147,7 @@ sub generate_assertion_options {
     my $options = {
         rpId             => $self->rp_id,
         challenge        => $params{challenge_b64} // _generate_challenge(),
-        userVerification => $params{requested_uv} // "preferred",
+        userVerification => $params{requested_uv}  // "preferred",
         allowCredentials =>
           _credential_descriptors( $params{allow_credentials} ),
     };
@@ -187,11 +187,11 @@ sub validate_registration {
     my ( $self, %params ) = @_;
 
     my (
-        $challenge_b64,             $requested_uv,
-        $client_data_json_b64,      $attestation_object_b64,
-        $trust_anchors,
-        $allowed_attestation_types, $allow_untrusted_attestation,
-        $allow_unknown_attestation_format, $allowed_algs,
+        $challenge_b64,               $requested_uv,
+        $client_data_json_b64,        $attestation_object_b64,
+        $trust_anchors,               $allowed_attestation_types,
+        $allow_untrusted_attestation, $allow_unknown_attestation_format,
+        $allowed_algs,
       )
       = @params{ qw(
           challenge_b64        requested_uv
@@ -217,8 +217,8 @@ sub validate_registration {
     }
 
     unless ( $challenge_b64 eq ( $client_data->{challenge} // "" ) ) {
-        croak(  "Challenge received from client data "
-              . "(" . ( $client_data->{challenge} // "none" ) . ") "
+        croak(  "Challenge received from client data " . "("
+              . ( $client_data->{challenge} // "none" ) . ") "
               . "does not match server challenge "
               . "($challenge_b64)" );
     }
@@ -243,8 +243,9 @@ sub validate_registration {
     my $attestation_object = getAttestationObject($attestation_object_b64);
     my $authenticator_data = $attestation_object->{authData};
 
-    # uncoverable branch true note:getAttestationObject requires authenticator data
+    # uncoverable branch true note:getAttestationObject requires it
     unless ($authenticator_data) {
+
         # uncoverable statement
         croak("Authenticator data not found in attestation object");
     }
@@ -297,8 +298,8 @@ sub validate_registration {
 
     # Refuse a key that could never verify an assertion, rather than let the
     # Relying Party store it
-    _check_credential_public_key( $authenticator_data->{attestedCredentialData}
-          ->{credentialPublicKey} );
+    _check_credential_public_key(
+        $authenticator_data->{attestedCredentialData}->{credentialPublicKey} );
 
     # 18. Determine the attestation statement format by performing a USASCII
     # case-sensitive match on fmt against the set of supported WebAuthn
@@ -332,12 +333,11 @@ sub validate_registration {
     };
     croak( "Failed to validate attestation: " . $@ ) if ($@);
 
-    # uncoverable branch true note:attestation functions croak rather than fail
+    # uncoverable branch true note:attestation functions croak instead
     unless ( $attestation_result->{success} == 1 ) {
+
         # uncoverable statement
-        croak(
-            # uncoverable statement
-            "Failed to validate attestation: " . $attestation_result->{error} );
+        croak("Failed to validate attestation: $attestation_result->{error}");
     }
 
     # 20. If validation is successful, obtain a list of acceptable trust
@@ -453,8 +453,7 @@ sub _check_credential_public_key {
         ( my $modulus = $cose_key->{-1} ) =~ s/^\x00+//;
         my $bits = 8 * length($modulus);
         if ( $bits < $MIN_RSA_BITS ) {
-            croak(
-                "RSA key of $bits bits is too short (min: $MIN_RSA_BITS)");
+            croak("RSA key of $bits bits is too short (min: $MIN_RSA_BITS)");
         }
     }
     return;
@@ -509,8 +508,8 @@ sub validate_assertion {
     }
 
     unless ( $challenge_b64 eq ( $client_data->{challenge} // "" ) ) {
-        croak(  "Challenge received from client data "
-              . "(" . ( $client_data->{challenge} // "none" ) . ") "
+        croak(  "Challenge received from client data " . "("
+              . ( $client_data->{challenge} // "none" ) . ") "
               . "does not match server challenge "
               . "($challenge_b64)" );
     }
@@ -659,8 +658,10 @@ sub _ecc_obj_to_cose {
     my ($key) = @_;
 
     $key = $key->key2hash;
+
     # uncoverable branch true note:only ever called with P-256 keys
     unless ( $key->{curve_name} eq "secp256r1" ) {
+
         # uncoverable statement
         croak "Invalid ECC curve: " . $key->{curve_name};
     }
@@ -727,8 +728,10 @@ sub check_attestation_trust {
     #obtained in Step 20 may be the same).
 
     my $attn_cert = $attestation_result->{trust_path}->[0];
+
     # uncoverable branch true note:Basic attestation always has a certificate
     unless ($attn_cert) {
+
         # uncoverable statement
         croak("Missing attestation certificate");
     }
@@ -805,11 +808,10 @@ sub _getU2FKeyFromCose {
 sub parse_ecc_cose {
     my ($cose_struct) = @_;
 
-    my $curve       = $cose_struct->{-1};
-    my $x = _require_bytes( $cose_struct->{-2}, "EC2 key x coordinate" );
-    my $y = _require_bytes( $cose_struct->{-3}, "EC2 key y coordinate" );
-    my $id_to_curve =
-      { 1 => 'secp256r1', 2 => 'secp384r1', 3 => 'secp521r1', };
+    my $curve = $cose_struct->{-1};
+    my $x     = _require_bytes( $cose_struct->{-2}, "EC2 key x coordinate" );
+    my $y     = _require_bytes( $cose_struct->{-3}, "EC2 key y coordinate" );
+    my $id_to_curve = { 1 => 'secp256r1', 2 => 'secp384r1', 3 => 'secp521r1', };
 
     my $pk         = Crypt::PK::ECC->new();
     my $curve_name = $id_to_curve->{$curve};
@@ -907,8 +909,10 @@ sub get_verifier_for_alg {
 
     my $key_type        = $alg_config->{key_type};
     my $key_type_config = $KEY_TYPES->{$key_type};
+
     # uncoverable branch true note:every algorithm in COSE_ALG has a key type
     unless ($key_type_config) {
+
         # uncoverable statement
         croak "Unsupported key type $key_type";
     }
@@ -921,8 +925,10 @@ sub get_verifier_for_alg {
 
     # Get key
     my $public_key = $key_function->($key_data);
-    # uncoverable branch true note:parse functions croak rather than return false
+
+    # uncoverable branch true note:parse functions croak instead
     unless ($public_key) {
+
         # uncoverable statement
         croak "Could not parse public key";
     }
@@ -937,8 +943,8 @@ sub get_verifier_for_alg {
 
 sub getPubKeyVerifier {
     my ($pubkey_cose) = @_;
-    my $cose_key = _require_map( _decode_cbor($pubkey_cose),
-        "Credential public key" );
+    my $cose_key =
+      _require_map( _decode_cbor($pubkey_cose), "Credential public key" );
 
     my $alg_num = $cose_key->{3};
     croak("Missing algorithm in credential public key")
@@ -1020,8 +1026,7 @@ sub getAttestedCredentialData {
     if ( $res->{credentialIdLength} > 1023 ) {
         croak("Credential ID is longer than 1023 bytes");
     }
-    if ( length($attestedCredentialData) <= 18 + $res->{credentialIdLength} )
-    {
+    if ( length($attestedCredentialData) <= 18 + $res->{credentialIdLength} ) {
         croak("Attested credential data is truncated");
     }
     $res->{credentialId} =
@@ -1108,7 +1113,7 @@ sub getAttestationObject {
     my ($dat)   = @_;
     my $decoded = decode_base64url($dat);
     my $res     = {};
-    my $h = _require_map( _decode_cbor($decoded), "Attestation object" );
+    my $h       = _require_map( _decode_cbor($decoded), "Attestation object" );
     _require_bytes( $h->{fmt},      "Attestation statement format" );
     _require_bytes( $h->{authData}, "Authenticator data" );
     _require_map( $h->{attStmt}, "Attestation statement" );

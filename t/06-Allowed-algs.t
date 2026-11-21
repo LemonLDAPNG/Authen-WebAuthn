@@ -42,9 +42,8 @@ sub register {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
             %{ $options || {} },
         );
     };
@@ -74,8 +73,10 @@ sub authenticate {
 
 ok( register(), "Any supported algorithm is accepted by default" );
 
-ok( register( { allowed_algs => [ -7, -257 ] } ),
-    "An ES256 key is accepted when ES256 is allowed" );
+ok(
+    register( { allowed_algs => [ -7, -257 ] } ),
+    "An ES256 key is accepted when ES256 is allowed"
+);
 
 ok( !register( { allowed_algs => [-257] } ),
     "An ES256 key is refused when only RS256 is allowed" );

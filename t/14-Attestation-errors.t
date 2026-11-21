@@ -26,12 +26,9 @@ sub with_statement {
     my $object = CBOR::XS::decode_cbor(
         decode_base64url( $response->{attestation_object_b64} ) );
     $change->( $object->{attStmt} );
-    return (
-        %$response,
-        attestation_object_b64 => encode_base64url(
-            CBOR::XS->new->text_keys(1)->encode($object)
-        ),
-    );
+    return ( %$response,
+        attestation_object_b64 =>
+          encode_base64url( CBOR::XS->new->text_keys(1)->encode($object) ), );
 }
 
 sub register {
@@ -57,24 +54,35 @@ subtest "trust_anchors as a code reference" => sub {
         "Given the AAGUID"
     );
 
-    ok( !register( %packed, trust_anchors => sub { "not a list" } ),
-        "A code reference that does not return a list is refused" );
-    like( $@, qr/trust_anchors sub must return an ARRAY reference/,
-        "With the expected message" );
+    ok(
+        !register( %packed, trust_anchors => sub { "not a list" } ),
+        "A code reference that does not return a list is refused"
+    );
+    like(
+        $@,
+        qr/trust_anchors sub must return an ARRAY reference/,
+        "With the expected message"
+    );
 
-    ok( !register( %packed, trust_anchors => "not a list" ),
-        "A trust_anchors that is neither is refused" );
-    like( $@, qr/trust_anchors parameter must be a SUB or ARRAY reference/,
-        "With the expected message" );
+    ok(
+        !register( %packed, trust_anchors => "not a list" ),
+        "A trust_anchors that is neither is refused"
+    );
+    like(
+        $@,
+        qr/trust_anchors parameter must be a SUB or ARRAY reference/,
+        "With the expected message"
+    );
 };
 
 subtest "A trust anchor that is not a certificate" => sub {
     for my $anchors ( ["garbage"], [ $main::yubico_u2f_root, "garbage" ] ) {
         ok( !register( %packed, trust_anchors => $anchors ),
             "Registration fails" );
-        like( $@, qr/Could not parse certificate/, "With the expected message" );
-        is( Net::SSLeay::ERR_peek_error(), 0,
-            "OpenSSL's error queue is left empty" );
+        like( $@, qr/Could not parse certificate/,
+            "With the expected message" );
+        is( Net::SSLeay::ERR_peek_error(),
+            0, "OpenSSL's error queue is left empty" );
     }
 };
 
@@ -95,8 +103,11 @@ subtest "Packed attestation" => sub {
         ),
         "A certificate field that is not a list is refused"
     );
-    like( $@, qr/Invalid certificate field in attestation statement/,
-        "With the expected message" );
+    like(
+        $@,
+        qr/Invalid certificate field in attestation statement/,
+        "With the expected message"
+    );
 };
 
 subtest "FIDO U2F attestation" => sub {
@@ -107,8 +118,11 @@ subtest "FIDO U2F attestation" => sub {
         ),
         "A missing certificate is refused"
     );
-    like( $@, qr/Missing certificate field in attestation statement/,
-        "With the expected message" );
+    like(
+        $@,
+        qr/Missing certificate field in attestation statement/,
+        "With the expected message"
+    );
 
     ok(
         !register(

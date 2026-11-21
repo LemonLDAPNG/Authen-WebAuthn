@@ -42,9 +42,8 @@ sub register {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
             %{ $options || {} },
         );
     };
@@ -72,8 +71,13 @@ sub authenticate {
     };
 }
 
-sub registration_flags { { response => { attestationObject => { authData => { flags => {@_} } } } } }
-sub assertion_flags    { { response => { authenticatorData => { flags => {@_} } } } }
+sub registration_flags {
+    { response => { attestationObject => { authData => { flags => {@_} } } } }
+}
+
+sub assertion_flags {
+    { response => { authenticatorData => { flags => {@_} } } }
+}
 
 my $res = register();
 is( $res->{user_verified},   0, "Registration: user not verified" );
@@ -90,10 +94,15 @@ $res = register( undef,
     registration_flags( backupEligible => 1, backupState => 1 ) );
 is( $res->{backup_state}, 1, "Registration: backed up" );
 
-ok( !register( undef, registration_flags( backupState => 1 ) ),
-    "Registration: backed up without being eligible is refused" );
-like( $@, qr/Backup State flag is set but Backup Eligibility is not/,
-    "With the expected message" );
+ok(
+    !register( undef, registration_flags( backupState => 1 ) ),
+    "Registration: backed up without being eligible is refused"
+);
+like(
+    $@,
+    qr/Backup State flag is set but Backup Eligibility is not/,
+    "With the expected message"
+);
 
 $res = authenticate();
 is( $res->{user_verified},   0, "Assertion: user not verified" );
@@ -111,10 +120,15 @@ is( $res->{user_verified},   1, "Assertion: user verified" );
 is( $res->{backup_eligible}, 1, "Assertion: eligible for backup" );
 is( $res->{backup_state},    1, "Assertion: backed up" );
 
-ok( !authenticate( assertion_flags( backupState => 1 ) ),
-    "Assertion: backed up without being eligible is refused" );
-like( $@, qr/Backup State flag is set but Backup Eligibility is not/,
-    "With the expected message" );
+ok(
+    !authenticate( assertion_flags( backupState => 1 ) ),
+    "Assertion: backed up without being eligible is refused"
+);
+like(
+    $@,
+    qr/Backup State flag is set but Backup Eligibility is not/,
+    "With the expected message"
+);
 
 ok(
     !register(
@@ -123,8 +137,7 @@ ok(
             response => {
                 attestationObject => {
                     authData => {
-                        attestedCredentialData =>
-                          { credentialId => "x" x 1024 }
+                        attestedCredentialData => { credentialId => "x" x 1024 }
                     }
                 }
             }
@@ -132,7 +145,10 @@ ok(
     ),
     "A 1024 byte credential ID is refused"
 );
-like( $@, qr/Credential ID is longer than 1023 bytes/,
-    "With the expected message" );
+like(
+    $@,
+    qr/Credential ID is longer than 1023 bytes/,
+    "With the expected message"
+);
 
 done_testing();

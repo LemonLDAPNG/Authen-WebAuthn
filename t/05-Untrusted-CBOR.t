@@ -86,9 +86,8 @@ subtest "Extensions in a registration" => sub {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
         );
     };
     is( $thawed, 0, "THAW was not called" );
@@ -102,9 +101,8 @@ subtest "Extensions in an assertion" => sub {
             my $credential = $authenticator->get_credential_response(
                 { request => { challenge => "abc" } } );
             (
-                client_data_json_b64 => encode_base64url(
-                    $credential->{response}->{clientDataJSON}
-                ),
+                client_data_json_b64 =>
+                  encode_base64url( $credential->{response}->{clientDataJSON} ),
                 attestation_object_b64 => encode_base64url(
                     $credential->{response}->{attestationObject}
                 ),

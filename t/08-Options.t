@@ -1,5 +1,5 @@
 use Test::More;
-use JSON qw(encode_json decode_json);
+use JSON         qw(encode_json decode_json);
 use MIME::Base64 qw(encode_base64url decode_base64url);
 use strict;
 
@@ -87,8 +87,11 @@ subtest "Registration options" => sub {
     );
     is( $options->{challenge},           "abc",   "Challenge can be given" );
     is( $options->{user}->{displayName}, "Alice", "Display name" );
-    is_deeply( [ map { $_->{alg} } @{ $options->{pubKeyCredParams} } ],
-        [ -8, -7 ], "Algorithms in the order given" );
+    is_deeply(
+        [ map { $_->{alg} } @{ $options->{pubKeyCredParams} } ],
+        [ -8, -7 ],
+        "Algorithms in the order given"
+    );
     is_deeply(
         $options->{authenticatorSelection},
         { userVerification => "required", residentKey => "preferred" },
@@ -116,8 +119,11 @@ subtest "Registration options" => sub {
             allowed_algs => [-9999],
         );
     };
-    like( $@, qr/Unsupported algorithm -9999/,
-        "An algorithm this module cannot verify is refused" );
+    like(
+        $@,
+        qr/Unsupported algorithm -9999/,
+        "An algorithm this module cannot verify is refused"
+    );
 };
 
 subtest "Assertion options" => sub {
@@ -127,8 +133,8 @@ subtest "Assertion options" => sub {
     is( length( decode_base64url( $options->{challenge} ) ),
         32, "A 32 byte challenge is generated" );
     is( $options->{userVerification}, "preferred", "User verification" );
-    is_deeply( $options->{allowCredentials}, [],
-        "Any discoverable credential by default" );
+    is_deeply( $options->{allowCredentials},
+        [], "Any discoverable credential by default" );
 
     $options = $rp->generate_assertion_options(
         allow_credentials => ["aWQx"],
@@ -155,9 +161,8 @@ subtest "Generated options validate" => sub {
     my $credential =
       $authenticator->get_credential_response( { request => $options } );
     my $registration = $rp->validate_registration(
-        challenge_b64        => $options->{challenge},
-        allowed_algs         =>
-          [ map { $_->{alg} } @{ $options->{pubKeyCredParams} } ],
+        challenge_b64 => $options->{challenge},
+        allowed_algs => [ map { $_->{alg} } @{ $options->{pubKeyCredParams} } ],
         client_data_json_b64 =>
           encode_base64url( $credential->{response}->{clientDataJSON} ),
         attestation_object_b64 =>

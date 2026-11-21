@@ -1,6 +1,6 @@
 use Test::More;
 use MIME::Base64 qw(encode_base64url);
-use Digest::SHA qw(sha256);
+use Digest::SHA  qw(sha256);
 use JSON;
 use strict;
 
@@ -44,9 +44,8 @@ sub register {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
             %{ $options || {} },
         );
     };
@@ -87,12 +86,15 @@ subtest "Cross-origin requests" => sub {
         "A same-origin request is accepted" );
 
     ok( !authenticate($iframe), "A cross-origin request is refused" );
-    like( $@, qr/Cross-origin requests are not allowed/,
-        "With the expected message" );
+    like(
+        $@,
+        qr/Cross-origin requests are not allowed/,
+        "With the expected message"
+    );
     ok( !register( undef, $iframe ), "Also when registering" );
 
     $rp->allow_cross_origin(1);
-    ok( authenticate($iframe), "Accepted when allowed" );
+    ok( authenticate($iframe),      "Accepted when allowed" );
     ok( register( undef, $iframe ), "Also when registering" );
 
     $rp->allow_cross_origin( ["https://top.example.com"] );
@@ -100,8 +102,11 @@ subtest "Cross-origin requests" => sub {
 
     $rp->allow_cross_origin( ["https://other.example.com"] );
     ok( !authenticate($iframe), "Refused from another top origin" );
-    like( $@, qr/Top origin https:\/\/top.example.com is not allowed/,
-        "With the expected message" );
+    like(
+        $@,
+        qr/Top origin https:\/\/top.example.com is not allowed/,
+        "With the expected message"
+    );
     ok( !authenticate( client_data( crossOrigin => JSON::true ) ),
         "Refused without a top origin" );
 
@@ -109,11 +114,15 @@ subtest "Cross-origin requests" => sub {
 };
 
 subtest "AppID extension" => sub {
-    my $appid  = "https://auth.example.com/u2f-facets.json";
-    my $u2f    = { response => { authenticatorData =>
-                { rpIdHash => sha256($appid) } } };
-    my $origin = { response => { authenticatorData =>
-                { rpIdHash => sha256("http://auth.example.com") } } };
+    my $appid = "https://auth.example.com/u2f-facets.json";
+    my $u2f =
+      { response => { authenticatorData => { rpIdHash => sha256($appid) } } };
+    my $origin = {
+        response => {
+            authenticatorData =>
+              { rpIdHash => sha256("http://auth.example.com") }
+        }
+    };
 
     ok(
         authenticate(
@@ -123,14 +132,14 @@ subtest "AppID extension" => sub {
         ),
         "Authenticator data hashed with the given AppID"
     );
-    ok( !authenticate( $u2f, extension_results => { appid => 1 } ),
-        "Without the appid option, the origin is expected" );
+    ok(
+        !authenticate( $u2f, extension_results => { appid => 1 } ),
+        "Without the appid option, the origin is expected"
+    );
     ok( authenticate( $origin, extension_results => { appid => 1 } ),
         "Which is the earlier behaviour" );
-    ok(
-        !authenticate( $u2f, appid => $appid ),
-        "Without the extension result, the RP ID is expected"
-    );
+    ok( !authenticate( $u2f, appid => $appid ),
+        "Without the extension result, the RP ID is expected" );
     ok(
         authenticate( undef, extension_results => { appid => 0 } ),
         "And a false extension result changes nothing"

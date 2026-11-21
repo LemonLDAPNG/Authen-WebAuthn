@@ -15,7 +15,7 @@ my ($valgrind) =
   map { File::Spec->catfile( $_, "valgrind" ) } File::Spec->path;
 plan skip_all => "valgrind is not installed" unless $valgrind;
 
-my @tests = @ARGV ? @ARGV : sort glob("t/*.t");
+my @tests         = @ARGV ? @ARGV : sort glob("t/*.t");
 my $errors_status = 99;
 
 local $ENV{PERL_DESTRUCT_LEVEL} = 2;

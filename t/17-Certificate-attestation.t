@@ -55,9 +55,8 @@ sub register {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
             trust_anchors => [ pem("root") ],
             %options,
         );
@@ -89,8 +88,11 @@ subtest "Certificate chains" => sub {
     ok( register($chained), "Through an intermediate" ) or diag($@);
 
     $chained->attestation_certificates( [ pem("packed-chained") ] );
-    refused( register($chained), qr/Could not verify X.509 chain/,
-        "Without the intermediate" );
+    refused(
+        register($chained),
+        qr/Could not verify X.509 chain/,
+        "Without the intermediate"
+    );
 
     my $direct = authenticator( certificate => "packed-p256" );
     ok( register( $direct, trust_anchors => [ pem("packed-p256") ] ),
@@ -112,7 +114,7 @@ subtest "AAGUID extension" => sub {
 
     refused(
         register( authenticator( certificate => "packed-aaguid" ) ),
-        qr/AAGUID from certificate \(0102030405060708090A0B0C0D0E0F10\) does not match/,
+qr/AAGUID from certificate \(0102030405060708090A0B0C0D0E0F10\) does not match/,
         "Not matching"
     );
 };

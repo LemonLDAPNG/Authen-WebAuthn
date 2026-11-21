@@ -42,7 +42,7 @@ my %EC_CURVES = (
 my %RSA_SIGNATURES = (
     -257   => [ 'SHA256', 'v1.5' ],
     -37    => [ 'SHA256', 'pss', 32 ],
-    -65535 => [ 'SHA1', 'v1.5' ],
+    -65535 => [ 'SHA1',   'v1.5' ],
 );
 
 use constant {
@@ -102,12 +102,12 @@ sub makeAttestationObject {
 
 sub makeFlags {
     my ($flags) = @_;
-    my $up = $flags->{userPresent}  ? 1 : 0;
-    my $uv = $flags->{userVerified} ? 1 : 0;
-    my $be = $flags->{backupEligible} ? 1 : 0;
-    my $bs = $flags->{backupState} ? 1 : 0;
-    my $at = $flags->{atIncluded}   ? 1 : 0;
-    my $ed = $flags->{edIncluded}   ? 1 : 0;
+    my $up      = $flags->{userPresent}    ? 1 : 0;
+    my $uv      = $flags->{userVerified}   ? 1 : 0;
+    my $be      = $flags->{backupEligible} ? 1 : 0;
+    my $bs      = $flags->{backupState}    ? 1 : 0;
+    my $at      = $flags->{atIncluded}     ? 1 : 0;
+    my $ed      = $flags->{edIncluded}     ? 1 : 0;
     return ( FLAG_UP * $up +
           FLAG_UV * $uv +
           FLAG_BE * $be +
@@ -196,9 +196,9 @@ sub _canonical_cbor {
     if ( ref($value) eq 'HASH' ) {
         my @keys =
           sort { length($a) <=> length($b) or $a cmp $b } keys %$value;
-        return _cbor_head( 5, scalar @keys ) . join '',
-          map { _cbor_head( 3, length $_ ) . $_ . _canonical_cbor( $value->{$_} ) }
-          @keys;
+        return _cbor_head( 5, scalar @keys ) . join '', map {
+            _cbor_head( 3, length $_ ) . $_ . _canonical_cbor( $value->{$_} )
+        } @keys;
     }
     if ( ref($value) eq 'ARRAY' ) {
         return _cbor_head( 4, scalar @$value ) . join '',
@@ -219,7 +219,7 @@ sub _cbor_head {
 sub _cbor_int {
     my ($n) = @_;
     my ( $major, $value ) = $n < 0 ? ( 0x20, -1 - $n ) : ( 0x00, $n );
-    return pack( 'C', $major + $value ) if $value < 24;
+    return pack( 'C',  $major + $value ) if $value < 24;
     return pack( 'CC', $major + 24, $value ) if $value < 256;
     return pack( 'Cn', $major + 25, $value );
 }
@@ -227,7 +227,7 @@ sub _cbor_int {
 sub _cbor_bytes {
     my ($bytes) = @_;
     my $length = length($bytes);
-    return pack( 'C', 0x40 + $length ) . $bytes if $length < 24;
+    return pack( 'C',  0x40 + $length ) . $bytes if $length < 24;
     return pack( 'CC', 0x58, $length ) . $bytes if $length < 256;
     return pack( 'Cn', 0x59, $length ) . $bytes;
 }
@@ -249,16 +249,16 @@ sub encode_cosekey {
 
     if ( $pk->isa('Crypt::PK::Ed25519') ) {
         return _cose_key(
-            1  => _cbor_int(1),                               # kty OKP
+            1  => _cbor_int(1),                                   # kty OKP
             3  => _cbor_int($alg),
-            -1 => _cbor_int(6),                               # Ed25519
+            -1 => _cbor_int(6),                                   # Ed25519
             -2 => _cbor_bytes( $pk->export_key_raw('public') ),
         );
     }
     if ( $pk->isa('Crypt::PK::RSA') ) {
         my $hash = $pk->key2hash;
         return _cose_key(
-            1  => _cbor_int(3),                               # kty RSA
+            1  => _cbor_int(3),                                   # kty RSA
             3  => _cbor_int($alg),
             -1 => _cbor_bytes( pack( 'H*', $hash->{N} ) ),
             -2 => _cbor_bytes( pack( 'H*', $hash->{e} ) ),
@@ -275,7 +275,7 @@ sub encode_cosekey {
         pack( 'H*', sprintf( '%0*s', $curve->{size} * 2, shift ) );
     };
     return _cose_key(
-        1  => _cbor_int(2),                                   # kty EC2
+        1  => _cbor_int(2),                                     # kty EC2
         3  => _cbor_int($alg),
         -1 => _cbor_int( $curve->{crv} ),
         -2 => _cbor_bytes( $coordinate->( $hash->{pub_x} ) ),

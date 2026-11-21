@@ -44,9 +44,8 @@ sub register {
             challenge_b64        => "abc",
             client_data_json_b64 =>
               encode_base64url( $credential->{response}->{clientDataJSON} ),
-            attestation_object_b64 => encode_base64url(
-                $credential->{response}->{attestationObject}
-            ),
+            attestation_object_b64 =>
+              encode_base64url( $credential->{response}->{attestationObject} ),
             %{ $options || {} },
         );
     };
@@ -100,8 +99,7 @@ sub register_raw {
                 $parts{client_data} // $registration->{clientDataJSON}
             ),
             attestation_object_b64 => encode_base64url(
-                $parts{attestation_object}
-                  // $registration->{attestationObject}
+                $parts{attestation_object} // $registration->{attestationObject}
             ),
         );
     };
@@ -116,8 +114,7 @@ sub authenticate_raw {
               encode_base64url( $authenticator->encode_cosekey ),
             stored_sign_count    => 0,
             client_data_json_b64 => encode_base64url(
-                $parts{client_data}
-                  // $assertion->{response}->{clientDataJSON}
+                $parts{client_data} // $assertion->{response}->{clientDataJSON}
             ),
             authenticator_data_b64 => encode_base64url(
                 $parts{authenticator_data}
@@ -136,11 +133,15 @@ sub refused {
 }
 
 subtest "Values of the wrong type" => sub {
-    my $map = sub { CBOR::XS->new->text_keys(1)->encode(shift) };
+    my $map   = sub { CBOR::XS->new->text_keys(1)->encode(shift) };
     my $valid = CBOR::XS::decode_cbor( $registration->{attestationObject} );
 
-    refused( register_raw( attestation_object => $map->( [ 1, 2 ] ) ),
-        $@, qr/Attestation object is not a map/, "Attestation object" );
+    refused(
+        register_raw( attestation_object => $map->( [ 1, 2 ] ) ),
+        $@,
+        qr/Attestation object is not a map/,
+        "Attestation object"
+    );
     refused(
         register_raw(
             attestation_object => $map->( { %$valid, attStmt => "x" } )
@@ -165,8 +166,11 @@ subtest "Values of the wrong type" => sub {
         qr/Attestation statement format is missing/,
         "Attestation statement format"
     );
-    refused( authenticate_raw( client_data => "[]" ),
-        $@, qr/Client data is not a JSON object/, "Client data" );
+    refused(
+        authenticate_raw( client_data => "[]" ),
+        $@, qr/Client data is not a JSON object/,
+        "Client data"
+    );
     refused(
         authenticate_raw(
             client_data => encode_json( { type => ["webauthn.get"] } )
@@ -177,7 +181,9 @@ subtest "Values of the wrong type" => sub {
     );
     refused(
         register_raw( attestation_object => pack( "H*", "bfeb" ) ),
-        $@, qr/corrupted CBOR data/, "Malformed map"
+        $@,
+        qr/corrupted CBOR data/,
+        "Malformed map"
     );
 
     # The credential ID length, after the 37 byte header and 16 byte AAGUID,

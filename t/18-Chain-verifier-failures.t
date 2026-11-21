@@ -56,8 +56,11 @@ for my $function ( sort keys %failures ) {
 # Net::SSLeay before 1.91 returns nothing from X509_STORE_CTX_init
 {
     local $Net::SSLeay::VERSION = '1.90';
-    is_deeply( verify(), { result => 1 },
-        "The chain verifies with an older Net::SSLeay" );
+    is_deeply(
+        verify(),
+        { result => 1 },
+        "The chain verifies with an older Net::SSLeay"
+    );
 }
 
 done_testing();
