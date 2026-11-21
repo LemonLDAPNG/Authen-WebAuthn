@@ -109,6 +109,20 @@ subtest "Registration" => sub {
         qr/Attested credential data not found in authenticator data/,
         "No attested credential data"
     );
+    refused(
+        register(
+            undef,
+            registration_data(
+                attestedCredentialData => {
+                    credentialPublicKey => CBOR::XS::encode_cbor(
+                        { 1 => 2, 3 => -999, -1 => 1 }
+                    )
+                }
+            )
+        ),
+        qr/Unsupported algorithm -999/,
+        "A credential key with an unsupported algorithm"
+    );
 };
 
 subtest "Authentication" => sub {

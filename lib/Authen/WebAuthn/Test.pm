@@ -76,7 +76,7 @@ sub makeAuthData {
     my $signCount = pack( 'N', $authdata->{signCount} );
     my $acd = makeAttestedCredentialData( $authdata->{attestedCredentialData} );
     my $ed =
-      $authdata->{extensions} ? encode_cbor( $authdata->{extensions} ) : '';
+      $authdata->{extensions} ? _canonical_cbor( $authdata->{extensions} ) : '';
     my $res = $rpIdHash . $flags . $signCount . $acd . $ed;
 
     return $res;
@@ -97,9 +97,7 @@ sub makeAttestationObject {
         'attStmt'  => $att_stmt,
     };
 
-    my $cbor = CBOR::XS->new;
-    $cbor->text_keys(1);
-    return $cbor->encode($attestationObject);
+    return _canonical_cbor($attestationObject);
 }
 
 sub makeFlags {
@@ -187,6 +185,33 @@ sub _alg_for {
     my $curve = $EC_CURVES{ $pk->key2hash->{curve_name} }
       or die "Unsupported curve " . $pk->key2hash->{curve_name};
     return $curve->{alg};
+}
+
+# CBOR as authenticators encode it (CTAP2 canonical form): map keys sorted
+# shortest first, then bytewise. It is also the same in every run, which
+# CBOR::XS's encoding of a Perl hash is not. Map keys are text.
+sub _canonical_cbor {
+    my ($value) = @_;
+
+    if ( ref($value) eq 'HASH' ) {
+        my @keys =
+          sort { length($a) <=> length($b) or $a cmp $b } keys %$value;
+        return _cbor_head( 5, scalar @keys ) . join '',
+          map { _cbor_head( 3, length $_ ) . $_ . _canonical_cbor( $value->{$_} ) }
+          @keys;
+    }
+    if ( ref($value) eq 'ARRAY' ) {
+        return _cbor_head( 4, scalar @$value ) . join '',
+          map { _canonical_cbor($_) } @$value;
+    }
+    return CBOR::XS::encode_cbor($value);
+}
+
+# The maps, arrays and keys the simulator encodes are all short
+sub _cbor_head {
+    my ( $major, $length ) = @_;
+    die "Too long for this encoder: $length" if $length > 23;
+    return pack( 'C', ( $major << 5 ) + $length );
 }
 
 # Just enough CBOR for a COSE_Key: its labels and algorithm identifiers fit in

@@ -179,6 +179,19 @@ subtest "Values of the wrong type" => sub {
         register_raw( attestation_object => pack( "H*", "bfeb" ) ),
         $@, qr/corrupted CBOR data/, "Malformed map"
     );
+
+    # The credential ID length, after the 37 byte header and 16 byte AAGUID,
+    # claims more bytes than there are
+    my $auth_data = $valid->{authData};
+    substr( $auth_data, 53, 2 ) = pack( "n", 1000 );
+    refused(
+        register_raw(
+            attestation_object => $map->( { %$valid, authData => $auth_data } )
+        ),
+        $@,
+        qr/Attested credential data is truncated/,
+        "A credential ID longer than the data"
+    );
 };
 
 # Random corruption of real responses, with a fixed seed
