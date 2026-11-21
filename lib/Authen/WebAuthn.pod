@@ -51,7 +51,6 @@ To authenticate a user:
             authenticator_data_b64 => ...,
             signature_b64          => ...,
             extension_results      => ...,
-            trust_anchors          => ...,
         )
     };
     if ($@) {

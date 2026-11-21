@@ -465,3 +465,116 @@ sub get_assertion_response {
 
 1;
 
+__END__
+
+=head1 NAME
+
+Authen::WebAuthn::Test - A software authenticator, for testing
+
+=head1 SYNOPSIS
+
+    use Authen::WebAuthn::Test;
+
+    my $authenticator = Authen::WebAuthn::Test->new(
+        origin        => "https://app.example.com",
+        rp_id         => "app.example.com",
+        credential_id => "my-credential",
+        aaguid        => "00000000-0000-0000-0000-000000000000",
+        key           => $private_key_pem,
+    );
+
+    # What navigator.credentials.create() would return
+    my $registration = $authenticator->get_credential_response(
+        { request => { challenge => $challenge_b64 } } );
+
+    # What navigator.credentials.get() would return
+    my $assertion = $authenticator->get_assertion_response(
+        { request => { challenge => $challenge_b64 } } );
+
+=head1 DESCRIPTION
+
+This module plays the part of an authenticator and its browser, so that a
+Relying Party built on L<Authen::WebAuthn> can be tested without either.
+It signs with the private key it is given; never give it a real one.
+
+=head1 ATTRIBUTES
+
+=over 4
+
+=item origin, rp_id
+
+The origin the browser reports, and the RP ID the authenticator data is
+bound to. C<rp_id> defaults to C<origin>.
+
+=item credential_id
+
+The credential ID, as raw bytes.
+
+=item aaguid
+
+The authenticator's AAGUID, as a UUID string.
+
+=item key
+
+The credential's private key, PEM-encoded: ECDSA on P-256, P-384 or P-521,
+RSA, or Ed25519.
+
+=item alg
+
+The COSE algorithm the credential signs with. By default it follows from
+the key: ES256, ES384 or ES512 for ECDSA, RS256 for RSA (set C<-37> for
+PS256), EdDSA for Ed25519.
+
+=item sign_count
+
+The signature counter to report. Default 0.
+
+=item attestation_format
+
+C<none> (the default), C<packed> or C<fido-u2f>.
+
+=item attestation_key, attestation_certificates
+
+For C<packed> attestation with a certificate, and for C<fido-u2f>: the
+attestation private key, PEM-encoded, and an arrayref of PEM certificates,
+the attestation certificate first. Without them, C<packed> is self
+attestation.
+
+=back
+
+=head1 METHODS
+
+=over 4
+
+=item get_credential_response($input, $override)
+
+Returns a registration response for C<< $input->{request} >>, which holds
+at least the C<challenge>. Its C<clientDataJSON> and C<attestationObject>
+are raw bytes, to be base64url-encoded for C<validate_registration>.
+
+C<$override> is merged into the response before it is encoded, to make
+it wrong in a chosen way: for example C<< { response => { clientDataJSON
+=> { origin => "https://evil.example.com" } } } >>.
+
+=item get_assertion_response($input, $override)
+
+The same for authentication, with C<authenticatorData> and C<signature>.
+
+=item encode_cosekey
+
+The credential's public key as a COSE key, in raw bytes.
+C<validate_registration> returns the same key base64url-encoded, as
+C<credential_pubkey>.
+
+=item sign($message)
+
+Signs C<$message> with the credential key.
+
+=item encode_credential($response)
+
+Encodes a response's binary fields as base64url and returns it as JSON,
+as a browser would send it.
+
+=back
+
+=cut
