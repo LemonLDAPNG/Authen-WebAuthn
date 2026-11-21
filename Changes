@@ -20,6 +20,8 @@ Unreleased
     bits
   - Malformed input is refused with a message of its own, without Perl
     warnings, and CBOR tags are refused
+  - Authen::WebAuthn::Test produces RSA, P-384, P-521 and Ed25519 keys,
+    and packed self attestation
   - Token Binding is no longer checked, as no browser supports it and
     WebAuthn Level 3 removed it; token_binding_id_b64 is ignored
 
