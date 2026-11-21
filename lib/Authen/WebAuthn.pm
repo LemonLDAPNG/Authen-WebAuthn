@@ -203,13 +203,10 @@ sub validate_registration {
       };
 
     my $client_data_json = decode_base64url($client_data_json_b64);
-    my $client_data      = eval { decode_json($client_data_json) };
-    if ($@) {
-        croak("Error deserializing client data: $@");
-    }
+    my $client_data      = _decode_client_data($client_data_json);
 
     # 7. Verify that the value of C.type is webauthn.create
-    unless ( $client_data->{type} eq "webauthn.create" ) {
+    unless ( ( $client_data->{type} // "" ) eq "webauthn.create" ) {
         croak("Type is not webauthn.create");
     }
 
@@ -219,9 +216,9 @@ sub validate_registration {
         croak("Empty registration challenge");
     }
 
-    unless ( $challenge_b64 eq $client_data->{challenge} ) {
+    unless ( $challenge_b64 eq ( $client_data->{challenge} // "" ) ) {
         croak(  "Challenge received from client data "
-              . "($client_data->{challenge}) "
+              . "(" . ( $client_data->{challenge} // "none" ) . ") "
               . "does not match server challenge "
               . "($challenge_b64)" );
     }
@@ -495,13 +492,10 @@ sub validate_assertion {
     # cData.
     # 10. Let C, the client data claimed as used for the signature, be the
     # result of running an implementation-specific JSON parser on JSONtext.
-    my $client_data = eval { decode_json($client_data_json) };
-    if ($@) {
-        croak("Error deserializing client data: $@");
-    }
+    my $client_data = _decode_client_data($client_data_json);
 
     # 11. Verify that the value of C.type is the string webauthn.get.
-    unless ( $client_data->{type} eq "webauthn.get" ) {
+    unless ( ( $client_data->{type} // "" ) eq "webauthn.get" ) {
         croak("Type is not webauthn.get");
     }
 
@@ -511,9 +505,9 @@ sub validate_assertion {
         croak("Empty authentication challenge");
     }
 
-    unless ( $challenge_b64 eq $client_data->{challenge} ) {
+    unless ( $challenge_b64 eq ( $client_data->{challenge} // "" ) ) {
         croak(  "Challenge received from client data "
-              . "($client_data->{challenge}) "
+              . "(" . ( $client_data->{challenge} // "none" ) . ") "
               . "does not match server challenge "
               . "($challenge_b64)" );
     }
@@ -609,10 +603,53 @@ sub _flags_result {
 
 # Everything decoded here was sent by the client. A plain CBOR::XS decoder
 # turns a value tagged as a Perl object into a call to the THAW method of
-# whichever loaded class the value names, so use the safe one.
+# whichever loaded class the value names. Nothing in WebAuthn is tagged, so
+# refuse every tag, which also keeps the date and bignum decoders away from
+# untrusted input.
+sub _cbor_decoder {
+    return CBOR::XS->new->validate_utf8->forbid_objects->max_size(1e6)
+      ->filter( sub { croak("Unexpected CBOR tag $_[0]") } );
+}
+
 sub _decode_cbor {
     my ($cbor_raw) = @_;
-    return CBOR::XS->new_safe->decode($cbor_raw);
+    _require_bytes( $cbor_raw, "CBOR data" );
+
+    # CBOR::XS warns on some malformed maps before it dies on them
+    no warnings 'uninitialized';
+    return _cbor_decoder()->decode($cbor_raw);
+}
+
+# The client data members compared here must be strings
+sub _decode_client_data {
+    my ($client_data_json) = @_;
+
+    my $client_data = eval { decode_json( $client_data_json // "" ) };
+    if ($@) {
+        croak("Error deserializing client data: $@");
+    }
+    unless ( ref($client_data) eq "HASH" ) {
+        croak("Client data is not a JSON object");
+    }
+    for my $member (qw(type challenge origin topOrigin)) {
+        if ( ref $client_data->{$member} ) {
+            croak("Client data member $member is not a string");
+        }
+    }
+    return $client_data;
+}
+
+sub _require_bytes {
+    my ( $value, $name ) = @_;
+    croak("$name is missing") unless defined $value;
+    croak("$name is not a byte string") if ref $value;
+    return $value;
+}
+
+sub _require_map {
+    my ( $value, $name ) = @_;
+    croak("$name is not a map") unless ref($value) eq "HASH";
+    return $value;
 }
 
 sub _ecc_obj_to_cose {
@@ -762,8 +799,8 @@ sub parse_ecc_cose {
     my ($cose_struct) = @_;
 
     my $curve       = $cose_struct->{-1};
-    my $x           = $cose_struct->{-2};
-    my $y           = $cose_struct->{-3};
+    my $x = _require_bytes( $cose_struct->{-2}, "EC2 key x coordinate" );
+    my $y = _require_bytes( $cose_struct->{-3}, "EC2 key y coordinate" );
     my $id_to_curve =
       { 1 => 'secp256r1', 2 => 'secp384r1', 3 => 'secp521r1', };
 
@@ -798,13 +835,14 @@ sub make_cryptx_verifier {
 sub parse_okp_cose {
     my ($cose_struct) = @_;
 
-    my $curve = $cose_struct->{-1};
-    unless ( $curve == 6 ) {
+    my $curve = $cose_struct->{-1} // "(none)";
+    unless ( $curve eq "6" ) {
         croak "Unsupported curve $curve";
     }
 
     my $pk = Crypt::PK::Ed25519->new();
-    $pk->import_key_raw( $cose_struct->{-2}, 'public' );
+    $pk->import_key_raw( _require_bytes( $cose_struct->{-2}, "OKP key" ),
+        'public' );
     return $pk;
 }
 
@@ -831,8 +869,8 @@ sub parse_rsa_pem {
 
 sub parse_rsa_cose {
     my ($cose_struct) = @_;
-    my $n             = $cose_struct->{-1};
-    my $e             = $cose_struct->{-2};
+    my $n = _require_bytes( $cose_struct->{-1}, "RSA key modulus" );
+    my $e = _require_bytes( $cose_struct->{-2}, "RSA key exponent" );
 
     my $pk = Crypt::PK::RSA->new();
 
@@ -888,14 +926,21 @@ sub get_verifier_for_alg {
 
 sub getPubKeyVerifier {
     my ($pubkey_cose) = @_;
-    my $cose_key = _decode_cbor($pubkey_cose);
+    my $cose_key = _require_map( _decode_cbor($pubkey_cose),
+        "Credential public key" );
 
     my $alg_num = $cose_key->{3};
+    croak("Missing algorithm in credential public key")
+      unless defined $alg_num and !ref $alg_num;
 
     # An algorithm is tied to one curve: ES256 with a P-384 key is not ES256
     my $curve = $COSE_ALG->{$alg_num} && $COSE_ALG->{$alg_num}->{curve};
-    if ( $curve and $cose_key->{-1} != $curve ) {
-        croak "Curve $cose_key->{-1} cannot be used with algorithm $alg_num";
+    if ( $curve
+        and !( defined $cose_key->{-1} and $cose_key->{-1} eq $curve ) )
+    {
+        croak "Curve "
+          . ( $cose_key->{-1} // "(none)" )
+          . " cannot be used with algorithm $alg_num";
     }
 
     return get_verifier_for_alg( $alg_num, $cose_key, "parse_cose" );
@@ -911,16 +956,24 @@ sub getPEMPubKeyVerifier {
 sub getCoseAlgAndLength {
     my ($cbor_raw) = @_;
 
-    my ( $cbor, $length ) = CBOR::XS->new_safe->decode_prefix($cbor_raw);
+    _require_bytes( $cbor_raw, "Credential public key" );
+    my ( $cbor, $length ) = do {
+        no warnings 'uninitialized';
+        _cbor_decoder()->decode_prefix($cbor_raw);
+    };
+    _require_map( $cbor, "Credential public key" );
 
     my $alg_num = $cbor->{3};
-    my $alg     = $COSE_ALG->{$alg_num}->{name};
+    my $alg =
+      ( defined $alg_num and !ref $alg_num and $COSE_ALG->{$alg_num} )
+      ? $COSE_ALG->{$alg_num}->{name}
+      : undef;
 
     if ($alg) {
         return ( $alg, $length, $alg_num );
     }
     else {
-        croak "Unsupported algorithm $alg_num";
+        croak "Unsupported algorithm " . ( $alg_num // "(none)" );
     }
 }
 
@@ -956,6 +1009,10 @@ sub getAttestedCredentialData {
     if ( $res->{credentialIdLength} > 1023 ) {
         croak("Credential ID is longer than 1023 bytes");
     }
+    if ( length($attestedCredentialData) <= 18 + $res->{credentialIdLength} )
+    {
+        croak("Attested credential data is truncated");
+    }
     $res->{credentialId} =
       substr( $attestedCredentialData, 18, $res->{credentialIdLength} );
     my ( $cose_alg, $length_cbor_pubkey, $cose_alg_num ) =
@@ -974,6 +1031,7 @@ sub getAttestedCredentialData {
 sub check_length {
     my ( $data, $name, $expected_len ) = @_;
 
+    _require_bytes( $data, $name );
     my $len = length($data);
     if ( $len < $expected_len ) {
         croak("$name has incorrect length $len (min: $expected_len)");
@@ -1007,11 +1065,12 @@ sub getAuthData {
     }
 
     if ( $res->{flags}->{edIncluded} ) {
-        my $ext = substr( $ad, 37 + $attestedCredentialDataLength );
-
-        if ($ext) {
-            $res->{extensions} = _decode_cbor($ext);
+        if ( length($ad) <= 37 + $attestedCredentialDataLength ) {
+            croak("Extension data flag is set but there is no extension data");
         }
+        my $ext = substr( $ad, 37 + $attestedCredentialDataLength );
+        $res->{extensions} =
+          _require_map( _decode_cbor($ext), "Extension data" );
     }
     else {
         # Check for trailing bytes
@@ -1038,7 +1097,10 @@ sub getAttestationObject {
     my ($dat)   = @_;
     my $decoded = decode_base64url($dat);
     my $res     = {};
-    my $h       = _decode_cbor($decoded);
+    my $h = _require_map( _decode_cbor($decoded), "Attestation object" );
+    _require_bytes( $h->{fmt},      "Attestation statement format" );
+    _require_bytes( $h->{authData}, "Authenticator data" );
+    _require_map( $h->{attStmt}, "Attestation statement" );
     $res->{authData}    = getAuthData( $h->{authData} );
     $res->{authDataRaw} = $h->{authData};
     $res->{attStmt}     = $h->{attStmt};
@@ -1071,9 +1133,23 @@ sub attest_packed {
     # and perform CBOR decoding on it to extract the contained fields.
     croak "Missing algorithm field in attestation statement"
       unless ( $attestation_statement->{alg} );
+    croak "Invalid algorithm field in attestation statement"
+      if ref $attestation_statement->{alg};
 
     croak "Missing signature field in attestation statement"
       unless ( $attestation_statement->{sig} );
+    _require_bytes( $attestation_statement->{sig},
+        "Attestation statement signature" );
+
+    if ( defined $attestation_statement->{x5c} ) {
+        my $x5c = $attestation_statement->{x5c};
+        unless ( ref($x5c) eq "ARRAY"
+            and @$x5c
+            and !grep { !defined $_ or ref $_ } @$x5c )
+        {
+            croak "Invalid certificate field in attestation statement";
+        }
+    }
 
     my $signed_value = $authenticator_data_raw . $client_data_hash;
 
