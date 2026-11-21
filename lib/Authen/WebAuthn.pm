@@ -67,14 +67,14 @@ sub validate_registration {
         $client_data_json_b64,      $attestation_object_b64,
         $token_binding_id_b64,      $trust_anchors,
         $allowed_attestation_types, $allow_untrusted_attestation,
-        $allow_unknown_attestation_format,
+        $allow_unknown_attestation_format, $allowed_algs,
       )
       = @params{ qw(
           challenge_b64        requested_uv
           client_data_json_b64 attestation_object_b64
           token_binding_id_b64 trust_anchors
           allowed_attestation_types allow_untrusted_attestation
-          allow_unknown_attestation_format
+          allow_unknown_attestation_format allowed_algs
         )
       };
 
@@ -171,7 +171,14 @@ sub validate_registration {
     # 16. Verify that the "alg" parameter in the credential public key in
     # authData matches the alg attribute of one of the items in
     # options.pubKeyCredParams.
-    # TODO For now, allow all known key types
+    # Without allowed_algs, every supported algorithm is accepted
+    if ( ref($allowed_algs) eq "ARRAY" and @$allowed_algs ) {
+        my $alg_num = $authenticator_data->{attestedCredentialData}
+          ->{credentialPublicKeyAlgNum};
+        unless ( grep { $_ == $alg_num } @$allowed_algs ) {
+            croak("Credential public key algorithm $alg_num is not allowed");
+        }
+    }
 
     # 17. Verify that the values of the client extension outputs in
     # clientExtensionResults and the authenticator extension outputs in the
@@ -734,7 +741,7 @@ sub getCoseAlgAndLength {
     my $alg     = $COSE_ALG->{$alg_num}->{name};
 
     if ($alg) {
-        return ( $alg, $length );
+        return ( $alg, $length, $alg_num );
     }
     else {
         croak "Unsupported algorithm $alg_num";
@@ -770,10 +777,12 @@ sub getAttestedCredentialData {
       unpack( 'n', substr( $attestedCredentialData, 16, 2 ) );
     $res->{credentialId} =
       substr( $attestedCredentialData, 18, $res->{credentialIdLength} );
-    my ( $cose_alg, $length_cbor_pubkey ) = getCoseAlgAndLength(
+    my ( $cose_alg, $length_cbor_pubkey, $cose_alg_num ) =
+      getCoseAlgAndLength(
         substr( $attestedCredentialData, 18 + $res->{credentialIdLength} ) );
 
-    $res->{credentialPublicKeyAlg} = $cose_alg;
+    $res->{credentialPublicKeyAlg}    = $cose_alg;
+    $res->{credentialPublicKeyAlgNum} = $cose_alg_num;
     $res->{credentialPublicKey} =
       substr( $attestedCredentialData, 18 + $res->{credentialIdLength},
         $length_cbor_pubkey );

@@ -143,6 +143,15 @@ This setting allows you to successfully validate registration, but change the
 type to C<Self> if a trusted certificate was not provided in the
 C<trust_anchors> parameter.
 
+=item allowed_algs
+
+An arrayref of the COSE algorithm identifiers you offered the authenticator in
+C<pubKeyCredParams>, such as C<[-7, -257]> for ES256 and RS256. Registration
+fails if the credential public key uses any other algorithm.
+
+By default, every algorithm supported by this module is accepted, including
+RS1, which signs with SHA-1.
+
 =item allow_unknown_attestation_format
 
 By default, if an unimplemented attestation format is encountered, registration
