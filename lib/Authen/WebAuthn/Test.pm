@@ -164,9 +164,17 @@ sub encode_credential {
           encode_base64url( $credential->{response}->{signature} );
     }
 
-    # Encode rawId
-    if ( $credential->{rawId} ) {
-        $credential->{rawId} = encode_base64url( $credential->{rawId} );
+    # Encode userHandle
+    if ( length( $credential->{response}->{userHandle} // "" ) ) {
+        $credential->{response}->{userHandle} =
+          encode_base64url( $credential->{response}->{userHandle} );
+    }
+
+    # Encode rawId, which a registration response carries in response
+    for my $container ( $credential, $credential->{response} ) {
+        if ( $container->{rawId} ) {
+            $container->{rawId} = encode_base64url( $container->{rawId} );
+        }
     }
 
     return JSON->new->utf8->pretty->encode($credential);
@@ -283,10 +291,6 @@ sub encode_cosekey {
 
     my $hash  = $pk->key2hash;
     my $curve = $EC_CURVES{ $hash->{curve_name} };
-
-    # Same bytes as earlier versions for ES256
-    return Authen::WebAuthn::_ecc_obj_to_cose($pk)
-      if $curve->{crv} == 1 and $alg == -7;
 
     my $coordinate = sub {
         pack( 'H*', sprintf( '%0*s', $curve->{size} * 2, shift ) );
@@ -594,8 +598,9 @@ Signs C<$message> with the credential key.
 
 =item encode_credential($response)
 
-Encodes a response's binary fields as base64url and returns it as JSON,
-as a browser would send it.
+Encodes a response's binary fields as base64url, as a browser does, and
+returns it as JSON. The layout is the simulator's: a registration response
+carries C<id>, C<rawId> and C<type> inside C<response>.
 
 =back
 

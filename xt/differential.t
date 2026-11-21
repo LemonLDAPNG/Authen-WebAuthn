@@ -39,6 +39,12 @@ my @KNOWN = (
     },
     {
         accepts => "theirs",
+        ours    => qr/^Attestation statement is not a map/,
+        why     => "py_webauthn accepts an attestation object without attStmt "
+          . "when fmt is none; the attestation object's syntax requires it",
+    },
+    {
+        accepts => "theirs",
         ours    => qr/^Trailing bytes after CBOR data/,
         why     => "py_webauthn ignores bytes after the attestation object",
     },
@@ -72,18 +78,24 @@ my $rp_id  = "auth.example.com";
 my $origin = "https://auth.example.com";
 my $rp     = Authen::WebAuthn->new( rp_id => $rp_id, origin => $origin );
 
+# Fixed keys, so that the same cases are compared in every run. ES384 is
+# not compared: py_webauthn refuses its algorithm before anything else.
 my %keys = (
-    ES256 =>
-      sub { my $k = Crypt::PK::ECC->new; $k->generate_key("secp256r1"); $k },
-    ES384 =>
-      sub { my $k = Crypt::PK::ECC->new; $k->generate_key("secp384r1"); $k },
-    ES512 =>
-      sub { my $k = Crypt::PK::ECC->new; $k->generate_key("secp521r1"); $k },
-    RS256 =>
-      sub { my $k = Crypt::PK::RSA->new; $k->generate_key( 256, 65537 ); $k },
-    PS256 =>
-      sub { my $k = Crypt::PK::RSA->new; $k->generate_key( 256, 65537 ); $k },
-    EdDSA => sub { my $k = Crypt::PK::Ed25519->new; $k->generate_key; $k },
+    ES256 => pem("packed-chained-key"),
+    ES384 => pem("packed-p384-key"),
+    ES512 => <<'P521',
+-----BEGIN PRIVATE KEY-----
+MIHuAgEAMBAGByqGSM49AgEGBSuBBAAjBIHWMIHTAgEBBEIAG4b2lZydKmrx60ri
+plUZjVJU37AFYipC0haYZvCW5yqBLRzvZdDNSZ3DEe2EAV0/R7OArM7a2vk/EftS
+MewIWyehgYkDgYYABAEUHJwR9zk/EFX3wxaLB+MMs42iXDYlJvfD/VuGQXK3g0i2
+ArYWaFw1xpVcNluvZqDInjHfq0FtKPLL3aHw02lhagCHEdRQShgp0lLg5vjlI5Tp
+SMCohREZG3KVTMvUXxxKCO8L1cPAvFeCLP5cIp7iFlJ7TviZutVwxH/SAgjQ3H7Y
+Yw==
+-----END PRIVATE KEY-----
+P521
+    RS256 => pem("packed-rsa-key"),
+    PS256 => pem("packed-rsa-key"),
+    EdDSA => pem("packed-ed25519-key"),
 );
 
 my @authenticators;
@@ -99,7 +111,7 @@ for my $name ( sort keys %keys ) {
                 rp_id         => $rp_id,
                 credential_id => "credential-$name-$format",
                 aaguid        => "00000000-0000-0000-0000-000000000000",
-                key           => $keys{$name}->()->export_key_pem("private"),
+                key           => $keys{$name},
                 ( $name eq "PS256" ? ( alg => -37 ) : () ),
                 attestation_format => $format eq "fido-u2f" ? "fido-u2f"
                 : $format =~ s/-.*//r,
@@ -116,10 +128,11 @@ for my $name ( sort keys %keys ) {
     }
 }
 
-srand(20261121);
-
+# Seeded per case: an ECDSA signature's length varies from run to run,
+# and that must not move the corruption of every case after it
 sub corrupt {
-    my ($bytes) = @_;
+    my ( $bytes, $case ) = @_;
+    srand( 20261121 + $case );
     for ( 1 .. 1 + int rand 3 ) {
         my $at   = int rand length $bytes;
         my $kind = rand;
@@ -149,7 +162,8 @@ for my $entry (@authenticators) {
 
     for my $variant ( 0 .. 40 ) {
         my $attestation_object = $registration->{attestationObject};
-        $attestation_object = corrupt($attestation_object) if $variant;
+        $attestation_object = corrupt( $attestation_object, scalar @cases )
+          if $variant;
         push @cases,
           {
             label => "$label registration" . ( $variant ? " #$variant" : "" ),
@@ -178,7 +192,7 @@ for my $entry (@authenticators) {
         my %response = %{ $assertion->{response} };
         if ($variant) {
             my $field = $variant % 2 ? "authenticatorData" : "signature";
-            $response{$field} = corrupt( $response{$field} );
+            $response{$field} = corrupt( $response{$field}, scalar @cases );
         }
         push @cases,
           {

@@ -111,6 +111,26 @@ subtest "Registration options" => sub {
 
     eval { $rp->generate_registration_options( rp_name => "Example" ) };
     like( $@, qr/Missing user_id/, "The user handle is required" );
+    for my $required (qw(rp_name user_name)) {
+        my %params = (
+            rp_name   => "Example",
+            user_id   => "user-42",
+            user_name => "alice"
+        );
+        $params{$required} = "";
+        eval { $rp->generate_registration_options(%params) };
+        like( $@, qr/Missing $required/, "... and so is $required" );
+    }
+    eval {
+        $rp->generate_registration_options(
+            rp_name             => "Example",
+            user_id             => "user-42",
+            user_name           => "alice",
+            exclude_credentials => [ { transports => ["usb"] } ],
+        );
+    };
+    like( $@, qr/Missing credential id/,
+        "A credential to exclude needs an id" );
 
     eval {
         $rp->generate_registration_options(
@@ -171,6 +191,19 @@ subtest "Options are checked" => sub {
     );
     ok( $rp->$registration( %required, user_id => "x" x 64 ),
         "A user handle of 64 bytes" );
+    $refused->(
+        $registration,
+        { %required, user_id => "\x{100}user" },
+        qr/user_id must be bytes, not characters/,
+        "A user handle of characters"
+    );
+    my $bytes = "\xc3\xa9" x 33;
+    $refused->(
+        $registration,
+        { %required, user_id => $bytes },
+        qr/user_id is longer than 64 bytes/,
+        "A user handle of 66 bytes"
+    );
 
     $refused->(
         $registration,
@@ -253,11 +286,14 @@ subtest "Optional options" => sub {
         "requireResidentKey is serialized as a boolean" );
 
     $options = $rp->generate_registration_options(
-        rp_name      => "Example",
-        user_id      => "user-42",
-        user_name    => "alice",
-        resident_key => "preferred",
+        rp_name                  => "Example",
+        user_id                  => "user-42",
+        user_name                => "alice",
+        resident_key             => "preferred",
+        authenticator_attachment => "platform",
     );
+    is( $options->{authenticatorSelection}->{authenticatorAttachment},
+        "platform", "authenticatorAttachment" );
     ok( !exists $options->{authenticatorSelection}->{requireResidentKey},
         "... and only then" );
     ok(

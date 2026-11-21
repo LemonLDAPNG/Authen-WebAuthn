@@ -2,6 +2,7 @@ use Test::More;
 use Crypt::PK::ECC;
 use Crypt::PK::Ed25519;
 use Crypt::PK::RSA;
+use JSON         ();
 use MIME::Base64 qw(encode_base64url);
 use strict;
 
@@ -160,6 +161,47 @@ subtest "Self attestation is verified" => sub {
         $@,
 qr/Attestation algorithm RS256 does not match credential key type ES256/,
         "With the expected message"
+    );
+};
+
+subtest "encode_credential" => sub {
+    my $authenticator = Authen::WebAuthn::Test->new(
+        origin        => "http://auth.example.com",
+        rp_id         => "auth.example.com",
+        credential_id => "\xffcredential",
+        user_handle   => "\xff\x10user",
+        aaguid        => "00000000-0000-0000-0000-000000000000",
+        key           => ecc_pem("secp256r1"),
+    );
+    my $assertion = JSON::decode_json(
+        $authenticator->encode_credential(
+            $authenticator->get_assertion_response(
+                { request => { challenge => "def" } }
+            )
+        )
+    );
+    is(
+        $assertion->{response}->{userHandle},
+        encode_base64url("\xff\x10user"),
+        "The user handle is base64url"
+    );
+    is(
+        $assertion->{rawId},
+        encode_base64url("\xffcredential"),
+        "... and the raw ID"
+    );
+
+    my $registration = JSON::decode_json(
+        $authenticator->encode_credential(
+            $authenticator->get_credential_response(
+                { request => { challenge => "abc" } }
+            )
+        )
+    );
+    is(
+        $registration->{response}->{rawId},
+        encode_base64url("\xffcredential"),
+        "... and a registration's raw ID"
     );
 };
 

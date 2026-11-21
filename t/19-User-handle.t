@@ -67,6 +67,14 @@ sub authenticate {
               encode_base64url( $assertion->{response}->{authenticatorData} ),
             signature_b64 =>
               encode_base64url( $assertion->{response}->{signature} ),
+
+            # What the browser would pass on
+            (
+                length $assertion->{response}->{userHandle}
+                ? ( user_handle_b64 =>
+                      encode_base64url( $assertion->{response}->{userHandle} ) )
+                : ()
+            ),
             %options,
         );
     };
@@ -119,25 +127,19 @@ subtest "User identified before the ceremony" => sub {
         "No user handle returned" );
 
     $authenticator->user_handle("user-42");
-    my $result = authenticate(
-        undef,
-        user_handle_b64          => $handle,
-        expected_user_handle_b64 => $handle,
-    );
+    my $result = authenticate( undef, expected_user_handle_b64 => $handle );
     ok( $result, "The owner's user handle returned" );
     is( $result && $result->{user_handle_b64}, $handle, "... and reported" );
 
+    $authenticator->user_handle("user-43");
     refused(
-        authenticate(
-            undef,
-            user_handle_b64          => encode_base64url("user-43"),
-            expected_user_handle_b64 => $handle,
-        ),
+        authenticate( undef, expected_user_handle_b64 => $handle ),
         qr/User handle \(dXNlci00Mw\) does not match the credential's owner/,
         "Another user's handle"
     );
+    $authenticator->user_handle("user-42");
     refused(
-        authenticate( undef, user_handle_b64 => $handle ),
+        authenticate(),
         qr/expected_user_handle_b64 is required to check the user handle/,
         "A user handle with nothing to check it against"
     );

@@ -161,7 +161,11 @@ sub generate_registration_options {
             croak("Missing $required");
         }
     }
-    if ( length( $params{user_id} ) > $MAX_USER_ID_LENGTH ) {
+
+    # An opaque byte string: a character string has no defined length here
+    croak("user_id must be bytes, not characters")
+      unless utf8::downgrade( my $user_id = $params{user_id}, 1 );
+    if ( length($user_id) > $MAX_USER_ID_LENGTH ) {
         croak("user_id is longer than $MAX_USER_ID_LENGTH bytes");
     }
     _check_option_values( \%params );

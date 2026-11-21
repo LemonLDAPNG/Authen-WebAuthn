@@ -31,6 +31,33 @@ subtest "convert_raw_ecc_to_cose" => sub {
         $verifier->( $key->sign_message( $message, "SHA256" ), $message ),
         "A U2F key converted to COSE verifies its signatures"
     );
+
+    # The canonical layout, written out, for a key whose x coordinate
+    # starts with a zero byte, which must not be dropped
+    my $raw;
+    do {
+        $key->generate_key("secp256r1");
+        $raw = $key->export_key_raw("public");
+    } until substr( $raw, 1, 1 ) eq "\0";
+    my ( $x, $y ) = ( substr( $raw, 1, 32 ), substr( $raw, 33, 32 ) );
+    is(
+        unpack(
+            "H*",
+            decode_base64url(
+                Authen::WebAuthn::convert_raw_ecc_to_cose(
+                    encode_base64url($raw)
+                )
+            )
+        ),
+        unpack(
+            "H*",
+            pack( "H*", "a5010203262001215820" )
+              . $x
+              . pack( "H*", "225820" )
+              . $y
+        ),
+        "kty, alg, crv, x and y, in canonical order and padded"
+    );
 };
 
 # Attestation certificates hold PEM keys

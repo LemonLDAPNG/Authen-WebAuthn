@@ -76,7 +76,10 @@ Unreleased
   - Produces RSA, P-384, P-521 and Ed25519 keys
   - Packed attestation, self or with a certificate, and fido-u2f
     attestation
-  - Encodes CBOR canonically, as authenticators do
+  - Encodes CBOR canonically, as authenticators do, with integer map
+    keys as CBOR integers
+  - encode_credential encodes userHandle, and a registration's rawId, as
+    base64url
 
   [Tests]
   - A test PKI in t/pki, and tests reaching every statement
