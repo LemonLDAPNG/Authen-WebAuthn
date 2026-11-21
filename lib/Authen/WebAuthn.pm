@@ -1188,7 +1188,13 @@ sub attest_packed_x5c {
     eval {
         $x5c = Crypt::OpenSSL::X509->new_from_string( $x5c_der,
             Crypt::OpenSSL::X509::FORMAT_ASN1 );
-        $key = $x5c->pubkey();
+
+        # Crypt::OpenSSL::X509 cannot read Ed25519 keys
+        my $alg = $COSE_ALG->{$sig_alg};
+        $key =
+          ( $alg and $alg->{key_type} eq "OKP" )
+          ? Crypt::PK::Ed25519->new( \$x5c_der )->export_key_pem('public')
+          : $x5c->pubkey();
     };
 
     croak "Cannot extract public key from attestation certificate: $@" if ($@);
@@ -1266,8 +1272,9 @@ sub attest_packed_check_cert_requirements {
       "Authenticator Attestation";
 
     # The Basic Constraints extension MUST have the CA component set to false.
-    my $isCa = $x5c->extensions_by_oid->{"2.5.29.19"}->basicC("ca");
-    croak "Basic Constraints CA is true" if $isCa;
+    my $basic_constraints = $x5c->extensions_by_oid->{"2.5.29.19"};
+    croak "Missing Basic Constraints extension" unless $basic_constraints;
+    croak "Basic Constraints CA is true" if $basic_constraints->basicC("ca");
 
     return;
 }

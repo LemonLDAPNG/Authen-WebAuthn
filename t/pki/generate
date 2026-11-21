@@ -1,0 +1,69 @@
+#!/bin/bash
+#
+# Regenerates the test PKI in this directory: a root and an intermediate
+# authority, and attestation certificates signed by them, some valid and
+# some each breaking one rule of WebAuthn's packed attestation (section
+# 8.2.1). Keys are for tests only. Certificates are valid for 100 years.
+#
+# Run from anywhere: t/pki/generate
+
+set -euo pipefail
+cd "$(dirname "$0")"
+rm -f -- *.pem *.srl
+
+days=36500
+serial=1
+subject="/C=US/O=Authen-WebAuthn Tests/OU=Authenticator Attestation"
+
+key() {
+    case "$2" in
+        p256)    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 ;;
+        p384)    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-384 ;;
+        rsa)     openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 ;;
+        ed25519) openssl genpkey -algorithm ED25519 ;;
+    esac >"$1-key.pem" 2>/dev/null
+}
+
+# name, key type, subject, issuer, extensions (empty for a version 1 cert)
+cert() {
+    local name=$1 type=$2 subj=$3 issuer=$4 ext=$5
+    key "$name" "$type"
+    openssl req -new -key "$name-key.pem" -subj "$subj" -out "$name.csr"
+    openssl x509 -req -in "$name.csr" -CA "$issuer.pem" \
+        -CAkey "$issuer-key.pem" -set_serial $((serial++)) -days $days \
+        ${ext:+-extfile <(printf '%s\n' "$ext")} -out "$name.pem" 2>/dev/null
+    rm "$name.csr"
+}
+
+leaf="basicConstraints=critical,CA:FALSE"
+ca="basicConstraints=critical,CA:TRUE
+keyUsage=critical,keyCertSign,cRLSign"
+
+key root p256
+openssl req -x509 -new -key root-key.pem -days $days \
+    -subj "/C=US/O=Authen-WebAuthn Tests/CN=Test Root" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" -out root.pem
+cert intermediate p256 "/C=US/O=Authen-WebAuthn Tests/CN=Test Intermediate" \
+    root "$ca"
+
+cert packed-p256    p256    "$subject/CN=Packed P-256"    root "$leaf"
+cert packed-p384    p384    "$subject/CN=Packed P-384"    root "$leaf"
+cert packed-rsa     rsa     "$subject/CN=Packed RSA"      root "$leaf"
+cert packed-ed25519 ed25519 "$subject/CN=Packed Ed25519"  root "$leaf"
+cert packed-chained p256    "$subject/CN=Packed Chained"  intermediate "$leaf"
+
+# id-fido-gen-ce-aaguid for 01020304-0506-0708-090a-0b0c0d0e0f10
+cert packed-aaguid p256 "$subject/CN=Packed AAGUID" root "$leaf
+1.3.6.1.4.1.45724.1.1.4=DER:04:10:01:02:03:04:05:06:07:08:09:0a:0b:0c:0d:0e:0f:10"
+
+cert bad-ou    p256 "/C=US/O=Authen-WebAuthn Tests/OU=Other/CN=Bad OU" root "$leaf"
+cert bad-no-c  p256 "/O=Authen-WebAuthn Tests/OU=Authenticator Attestation/CN=Bad no C" root "$leaf"
+cert bad-no-o  p256 "/C=US/OU=Authenticator Attestation/CN=Bad no O" root "$leaf"
+cert bad-no-cn p256 "/C=US/O=Authen-WebAuthn Tests/OU=Authenticator Attestation" root "$leaf"
+cert bad-no-ou p256 "/C=US/O=Authen-WebAuthn Tests/CN=Bad no OU" root "$leaf"
+cert bad-ca    p256 "$subject/CN=Bad CA" root "basicConstraints=critical,CA:TRUE"
+cert bad-no-bc p256 "$subject/CN=Bad no Basic Constraints" root "subjectKeyIdentifier=hash"
+cert bad-v1    p256 "$subject/CN=Bad version 1" root ""
+
+rm -f -- *.srl

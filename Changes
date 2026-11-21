@@ -5,7 +5,8 @@ Unreleased
     value cannot instantiate a Perl object
   - Fix PS256 signature verification (32 byte salt)
   - Fix trust_anchors given as a code reference, which was always refused
-  - Support ES384, ES512 and EdDSA (Ed25519) credential keys
+  - Support ES384, ES512 and EdDSA (Ed25519) credential keys, and
+    Ed25519 attestation certificates
   - Add allowed_algs option to validate_registration
   - origin can be an arrayref of accepted origins (Frank Carnovale)
   - Refuse cross-origin requests unless allow_cross_origin is set
@@ -23,6 +24,10 @@ Unreleased
     warnings, and CBOR tags are refused
   - Authen::WebAuthn::Test produces RSA, P-384, P-521 and Ed25519 keys,
     and packed self attestation
+  - A test PKI (t/pki) and certificate attestation in
+    Authen::WebAuthn::Test, both packed and fido-u2f
+  - Report a missing Basic Constraints extension in a packed attestation
+    certificate, which failed with a Perl error
   - Tests reach every statement outside the X.509 chain verifier's
     allocation failures; unreachable checks are marked uncoverable
   - Token Binding is no longer checked, as no browser supports it and

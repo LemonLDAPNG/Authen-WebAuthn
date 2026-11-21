@@ -7,6 +7,7 @@ use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
 use Crypt::PK::Ed25519;
+use Crypt::OpenSSL::X509;
 use Hash::Merge::Simple qw/merge/;
 use JSON qw(encode_json decode_json);
 use Authen::WebAuthn;
@@ -22,8 +23,14 @@ has sign_count    => ( is => 'rw', default => 0 );
 # COSE algorithm; by default, inferred from the key
 has alg => ( is => 'rw', lazy => 1, builder => '_build_alg' );
 
-# "none", or "packed" for self attestation
+# "none", "packed" or "fido-u2f"
 has attestation_format => ( is => 'rw', default => 'none' );
+
+# For "packed" with a certificate, and "fido-u2f": the attestation key, and
+# its certificate followed by any intermediates, all PEM. Without them,
+# "packed" is self attestation.
+has attestation_key          => ( is => 'rw' );
+has attestation_certificates => ( is => 'rw' );
 
 # ECDSA curve name => COSE curve, algorithm and hash
 my %EC_CURVES = (
@@ -159,10 +166,9 @@ sub encode_credential {
     return JSON->new->utf8->pretty->encode($credential);
 }
 
-# The key, as a CryptX object of whichever type the PEM holds
-sub _pk {
-    my ($self) = @_;
-    my $pem = $self->key;
+# A PEM key, as a CryptX object of whichever type it holds
+sub _read_key {
+    my ($pem) = @_;
     for my $class (qw(Crypt::PK::ECC Crypt::PK::RSA Crypt::PK::Ed25519)) {
         my $pk = eval { $class->new( \$pem ) };
         return $pk if $pk;
@@ -170,9 +176,12 @@ sub _pk {
     die "Unsupported key";
 }
 
-sub _build_alg {
-    my ($self) = @_;
-    my $pk = $self->_pk;
+sub _pk { _read_key( $_[0]->key ) }
+
+sub _build_alg { _alg_for( $_[0]->_pk ) }
+
+sub _alg_for {
+    my ($pk) = @_;
     return -257 if $pk->isa('Crypt::PK::RSA');
     return -8   if $pk->isa('Crypt::PK::Ed25519');
     my $curve = $EC_CURVES{ $pk->key2hash->{curve_name} }
@@ -251,16 +260,75 @@ sub encode_cosekey {
 
 sub sign {
     my ( $self, $message ) = @_;
-    my $pk = $self->_pk;
+    return _sign_with( $self->_pk, $self->alg, $message );
+}
+
+sub _sign_with {
+    my ( $pk, $alg, $message ) = @_;
 
     return $pk->sign_message($message) if $pk->isa('Crypt::PK::Ed25519');
     if ( $pk->isa('Crypt::PK::RSA') ) {
-        my $options = $RSA_SIGNATURES{ $self->alg }
-          or die "Unsupported RSA algorithm " . $self->alg;
+        my $options = $RSA_SIGNATURES{$alg}
+          or die "Unsupported RSA algorithm $alg";
         return $pk->sign_message( $message, @$options );
     }
     return $pk->sign_message( $message,
         $EC_CURVES{ $pk->key2hash->{curve_name} }->{hash} );
+}
+
+sub _der {
+    my ($pem) = @_;
+    return Crypt::OpenSSL::X509->new_from_string($pem)
+      ->as_string(Crypt::OpenSSL::X509::FORMAT_ASN1);
+}
+
+# The attestation statement for this format, as a function of the
+# authenticator data it signs
+sub _attestation_statement {
+    my ( $self, $client_data_json ) = @_;
+
+    my $format = $self->attestation_format;
+    return {} if $format eq 'none';
+
+    my $certificates = $self->attestation_certificates;
+    my $x5c = $certificates ? [ map { _der($_) } @$certificates ] : undef;
+    my $attestation_key =
+      $self->attestation_key ? _read_key( $self->attestation_key ) : undef;
+
+    if ( $format eq 'fido-u2f' ) {
+        die "fido-u2f needs an attestation key and certificate"
+          unless $attestation_key and $x5c;
+        return sub {
+            my ($auth_data) = @_;
+            my $public_key = $self->_pk->export_key_raw('public');
+            return {
+                sig => $attestation_key->sign_message(
+                    "\x00"
+                      . sha256( $self->rp_id )
+                      . sha256( ${$client_data_json} )
+                      . $self->credential_id
+                      . $public_key,
+                    'SHA256'
+                ),
+                x5c => [ $x5c->[0] ],
+            };
+        };
+    }
+
+    die "Unsupported attestation format $format" unless $format eq 'packed';
+    return sub {
+        my ($auth_data) = @_;
+        my $signed = $auth_data . sha256( ${$client_data_json} );
+        return { alg => $self->alg + 0, sig => $self->sign($signed) }
+          unless $attestation_key;
+
+        my $alg = _alg_for($attestation_key);
+        return {
+            alg => $alg + 0,
+            sig => _sign_with( $attestation_key, $alg, $signed ),
+            x5c => $x5c,
+        };
+    };
 }
 
 sub get_credential_response {
@@ -270,18 +338,9 @@ sub get_credential_response {
     my $uv = $input->{request}->{authenticatorSelection}->{userVerification}
       || "preferred";
 
-    # Self attestation signs the authenticator data and the client data hash
+    # Filled in below, once the client data is encoded
     my $client_data_json;
-    my $att_stmt =
-      $self->attestation_format eq 'packed'
-      ? sub {
-        my ($auth_data) = @_;
-        return {
-            alg => $self->alg + 0,
-            sig => $self->sign( $auth_data . sha256($client_data_json) ),
-        };
-      }
-      : {};
+    my $att_stmt = $self->_attestation_statement( \$client_data_json );
 
     # Everything is build from this array, you can override it for testing
     # various scenarios
