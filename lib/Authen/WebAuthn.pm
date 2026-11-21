@@ -8,7 +8,9 @@ use JSON qw(decode_json from_json to_json);
 use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
+use CryptX 0.089 ();
 use Crypt::PK::Ed25519;
+use Crypt::PK::Ed448;
 use Crypt::PRNG;
 use Crypt::OpenSSL::X509 1.808;
 use CBOR::XS 1.6      ();
@@ -107,6 +109,12 @@ my $COSE_ALG = {
         curve             => 6,
         signature_options => []
     },
+    -53 => {
+        name              => "Ed448",
+        key_type          => "OKP",
+        curve             => 7,
+        signature_options => []
+    },
     -257 => {
         name              => "RS256",
         key_type          => "RSA",
@@ -123,6 +131,9 @@ my $COSE_ALG = {
         signature_options => [ "SHA1", "v1.5" ]
     }
 };
+
+# The CryptX class for each COSE OKP curve (RFC 9053, section 7.2)
+my %OKP_CLASS = ( 6 => "Crypt::PK::Ed25519", 7 => "Crypt::PK::Ed448" );
 
 # EdDSA, ES256 and RS256, which WebAuthn Level 3 says a Relying Party that
 # wants to support a wide range of authenticators should offer
@@ -1477,16 +1488,14 @@ sub make_cryptx_verifier {
     };
 }
 
-# Octet Key Pair (RFC 8152, section 13.2). Only Ed25519 is supported
+# Octet Key Pair (RFC 8152, section 13.2): Ed25519 and Ed448
 sub parse_okp_cose {
     my ($cose_struct) = @_;
 
     my $curve = $cose_struct->{-1} // "(none)";
-    unless ( $curve eq "6" ) {
-        croak "Unsupported curve $curve";
-    }
+    my $class = $OKP_CLASS{$curve} or croak "Unsupported curve $curve";
 
-    my $pk = Crypt::PK::Ed25519->new();
+    my $pk = $class->new();
     $pk->import_key_raw( _require_bytes( $cose_struct->{-2}, "OKP key" ),
         'public' );
     return $pk;
@@ -1494,9 +1503,11 @@ sub parse_okp_cose {
 
 sub parse_okp_pem {
     my ($pem) = @_;
-    my $pk = Crypt::PK::Ed25519->new();
-    $pk->import_key( \$pem );
-    return $pk;
+    for my $class ( @OKP_CLASS{ sort keys %OKP_CLASS } ) {
+        my $pk = eval { $class->new( \$pem ) };
+        return $pk if $pk;
+    }
+    croak "Cannot read OKP key";
 }
 
 sub parse_ecc_pem {
@@ -1604,6 +1615,13 @@ sub get_verifier_for_alg {
         unless ( $curve_name eq $COSE_CURVE_NAME{ $alg_config->{curve} } ) {
             croak "Curve $curve_name cannot be used with algorithm $alg_num";
         }
+    }
+    if ( $key_type eq "OKP"
+        and !$public_key->isa( $OKP_CLASS{ $alg_config->{curve} } ) )
+    {
+        croak "A "
+          . ref($public_key)
+          . " key cannot be used with algorithm $alg_num";
     }
 
     my @signature_options = @{ $alg_config->{signature_options} };
@@ -1866,7 +1884,8 @@ sub attest_packed_x5c {
         my $alg = $COSE_ALG->{$sig_alg};
         $key =
           ( $alg and $alg->{key_type} eq "OKP" )
-          ? Crypt::PK::Ed25519->new( \$x5c_der )->export_key_pem('public')
+          ? $OKP_CLASS{ $alg->{curve} }->new( \$x5c_der )
+          ->export_key_pem('public')
           : $x5c->pubkey();
     };
 
@@ -2469,7 +2488,7 @@ sub _certificate_public_key {
     my ( $x509, $certificate_der, $alg_num ) = @_;
 
     my $alg = $COSE_ALG->{$alg_num};
-    return Crypt::PK::Ed25519->new( \$certificate_der )
+    return $OKP_CLASS{ $alg->{curve} }->new( \$certificate_der )
       ->export_key_pem('public')
       if $alg and $alg->{key_type} eq "OKP";
     return $x509->pubkey();

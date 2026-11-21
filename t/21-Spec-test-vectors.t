@@ -66,6 +66,7 @@ my %supported = (
     "packed-es512"                  => "Basic",
     "packed-rs256"                  => "Basic",
     "packed-eddsa"                  => "Basic",
+    "packed-ed448"                  => "Basic",
     "fido-u2f-es256"                => "Basic",
     "apple-es256"                   => "AnonCA",
     "android-key-es256"             => "Basic",
@@ -143,16 +144,9 @@ subtest "topOrigin" => sub {
     );
 };
 
-subtest "packed-ed448" => sub {
-    ok( !register( $rp, $vectors->{"sctn-test-vectors-packed-ed448"} ),
-        "Refused" );
-    like( $@, qr/Unsupported algorithm -53/,
-        "... as an unsupported algorithm" );
-};
-
 is(
     scalar( grep { $vectors->{$_}->{registration} } keys %$vectors ),
-    keys(%supported) + 2 + 1,
+    keys(%supported) + 2,
     "Every test vector is tested"
 );
 

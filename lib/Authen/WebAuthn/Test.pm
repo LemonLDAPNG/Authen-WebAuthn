@@ -7,6 +7,8 @@ use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
 use Crypt::PK::Ed25519;
+use Crypt::PK::Ed448;
+use Crypt::Digest qw(digest_data);
 use Crypt::OpenSSL::X509;
 use Hash::Merge::Simple qw/merge/;
 use JSON qw(encode_json decode_json);
@@ -177,13 +179,15 @@ sub encode_credential {
         }
     }
 
-    return JSON->new->utf8->pretty->encode($credential);
+    return JSON->new->utf8->canonical->pretty->encode($credential);
 }
 
 # A PEM key, as a CryptX object of whichever type it holds
 sub _read_key {
     my ($pem) = @_;
-    for my $class (qw(Crypt::PK::ECC Crypt::PK::RSA Crypt::PK::Ed25519)) {
+    for my $class (
+        qw(Crypt::PK::ECC Crypt::PK::RSA Crypt::PK::Ed25519 Crypt::PK::Ed448))
+    {
         my $pk = eval { $class->new( \$pem ) };
         return $pk if $pk;
     }
@@ -198,6 +202,7 @@ sub _alg_for {
     my ($pk) = @_;
     return -257 if $pk->isa('Crypt::PK::RSA');
     return -8   if $pk->isa('Crypt::PK::Ed25519');
+    return -53  if $pk->isa('Crypt::PK::Ed448');
     my $curve = $EC_CURVES{ $pk->key2hash->{curve_name} }
       or die "Unsupported curve " . $pk->key2hash->{curve_name};
     return $curve->{alg};
@@ -230,6 +235,9 @@ sub _canonical_cbor {
     }
     return CBOR::XS::encode_cbor($value);
 }
+
+# JSON with its keys in order, so that it is the same in every run
+sub _encode_json { JSON->new->utf8->canonical->encode(shift) }
 
 # The maps, arrays and keys the simulator encodes are all short
 sub _cbor_head {
@@ -271,18 +279,18 @@ sub encode_cosekey {
     my $pk  = $self->_pk;
     my $alg = $self->alg;
 
-    if ( $pk->isa('Crypt::PK::Ed25519') ) {
+    if ( $pk->isa('Crypt::PK::Ed25519') or $pk->isa('Crypt::PK::Ed448') ) {
         return _cose_key(
-            1  => _cbor_int(1),                                   # kty OKP
+            1  => _cbor_int(1),                                        # kty OKP
             3  => _cbor_int($alg),
-            -1 => _cbor_int(6),                                   # Ed25519
+            -1 => _cbor_int( $pk->isa('Crypt::PK::Ed448') ? 7 : 6 ),
             -2 => _cbor_bytes( $pk->export_key_raw('public') ),
         );
     }
     if ( $pk->isa('Crypt::PK::RSA') ) {
         my $hash = $pk->key2hash;
         return _cose_key(
-            1  => _cbor_int(3),                                   # kty RSA
+            1  => _cbor_int(3),                                        # kty RSA
             3  => _cbor_int($alg),
             -1 => _cbor_bytes( pack( 'H*', $hash->{N} ) ),
             -2 => _cbor_bytes( pack( 'H*', $hash->{e} ) ),
@@ -312,14 +320,19 @@ sub sign {
 sub _sign_with {
     my ( $pk, $alg, $message ) = @_;
 
-    return $pk->sign_message($message) if $pk->isa('Crypt::PK::Ed25519');
+    return $pk->sign_message($message)
+      if $pk->isa('Crypt::PK::Ed25519')
+      or $pk->isa('Crypt::PK::Ed448');
     if ( $pk->isa('Crypt::PK::RSA') ) {
         my $options = $RSA_SIGNATURES{$alg}
           or die "Unsupported RSA algorithm $alg";
         return $pk->sign_message( $message, @$options );
     }
-    return $pk->sign_message( $message,
-        $EC_CURVES{ $pk->key2hash->{curve_name} }->{hash} );
+
+    # Deterministic ECDSA (RFC 6979), so the simulator's output is the same
+    # in every run
+    my $hash = $EC_CURVES{ $pk->key2hash->{curve_name} }->{hash};
+    return $pk->sign_hash( digest_data( $hash, $message ), $hash );
 }
 
 sub _der {
@@ -348,13 +361,14 @@ sub _attestation_statement {
             my ($auth_data) = @_;
             my $public_key = $self->_pk->export_key_raw('public');
             return {
-                sig => $attestation_key->sign_message(
+                sig => _sign_with(
+                    $attestation_key,
+                    _alg_for($attestation_key),
                     "\x00"
                       . sha256( $self->rp_id )
                       . sha256( ${$client_data_json} )
                       . $self->credential_id
-                      . $public_key,
-                    'SHA256'
+                      . $public_key
                 ),
                 x5c => [ $x5c->[0] ],
             };
@@ -423,7 +437,7 @@ sub get_credential_response {
     }, $override;
 
     $client_data_json = $credential->{response}->{clientDataJSON} =
-      encode_json $credential->{response}->{clientDataJSON};
+      _encode_json( $credential->{response}->{clientDataJSON} );
     $credential->{response}->{attestationObject} =
       makeAttestationObject $credential->{response}->{attestationObject};
 
@@ -468,7 +482,7 @@ sub get_assertion_response {
         crossOrigin => JSON::false,
     };
     $credential->{response}->{clientDataJSON} =
-      encode_json $credential->{response}->{clientDataJSON};
+      _encode_json( $credential->{response}->{clientDataJSON} );
     $credential->{response}->{authenticatorData} =
       makeAuthData $credential->{response}->{authenticatorData};
 
@@ -538,13 +552,14 @@ The authenticator's AAGUID, as a UUID string.
 =item key
 
 The credential's private key, PEM-encoded: ECDSA on P-256, P-384 or P-521,
-RSA, or Ed25519.
+RSA, Ed25519 or Ed448.
 
 =item alg
 
 The COSE algorithm the credential signs with. By default it follows from
 the key: ES256, ES384 or ES512 for ECDSA, RS256 for RSA (set C<-37> for
-PS256), EdDSA for Ed25519.
+PS256), EdDSA for Ed25519, Ed448 for Ed448. ECDSA signatures are
+deterministic (RFC 6979), so the same inputs give the same response.
 
 =item sign_count
 

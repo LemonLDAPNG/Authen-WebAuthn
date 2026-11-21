@@ -2,6 +2,7 @@ Revision history for Authen-WebAuthn
  
 Unreleased
   [Behaviour changes]
+  - CryptX 0.089 or later is required, for Ed448
   - Cross-origin requests (crossOrigin or topOrigin in the client data)
     are refused unless the new allow_cross_origin attribute allows them
   - At registration, a credential public key is refused if it does not
@@ -47,7 +48,7 @@ Unreleased
 
   [New]
   - ES384, ES512 and EdDSA (Ed25519) credential keys, and RFC 9864's
-    fully-specified ESP256, ESP384, ESP512 and Ed25519 identifiers
+    fully-specified ESP256, ESP384, ESP512, Ed25519 and Ed448 identifiers
   - origin can be an arrayref of accepted origins (Frank Carnovale)
   - generate_registration_options and generate_assertion_options, which
     check their options against the WebAuthn enumerations and take hints
@@ -80,7 +81,10 @@ Unreleased
     validate_registration reports whether the credential is discoverable
 
   [Authen::WebAuthn::Test]
-  - Produces RSA, P-384, P-521 and Ed25519 keys
+  - Produces RSA, P-384, P-521, Ed25519 and Ed448 keys
+  - Deterministic: ECDSA signatures follow RFC 6979 and client data is
+    encoded with its keys in order, so the same inputs give the same
+    response
   - Packed attestation, self or with a certificate, and fido-u2f
     attestation
   - Encodes CBOR canonically, as authenticators do, with integer map

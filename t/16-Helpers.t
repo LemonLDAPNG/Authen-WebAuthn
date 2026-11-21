@@ -1,6 +1,7 @@
 use Test::More;
 use Crypt::PK::ECC;
 use Crypt::PK::Ed25519;
+use Crypt::PK::Ed448;
 use Crypt::PK::RSA;
 use JSON         qw(decode_json);
 use MIME::Base64 qw(encode_base64url decode_base64url);
@@ -92,10 +93,10 @@ subtest "Refusals of the key helpers" => sub {
     );
     dies_like(
         sub {
-            Authen::WebAuthn::parse_okp_cose( { -1 => 7, -2 => "\x01" x 57 } );
+            Authen::WebAuthn::parse_okp_cose( { -1 => 4, -2 => "\x01" x 32 } );
         },
-        qr/Unsupported curve 7/,
-        "An OKP curve other than Ed25519"
+        qr/Unsupported curve 4/,
+        "An OKP curve that is not for signatures (X25519)"
     );
     dies_like(
         sub { Authen::WebAuthn::get_verifier_for_alg( -7, {}, "parse_der" ) },
@@ -106,6 +107,40 @@ subtest "Refusals of the key helpers" => sub {
         sub { Authen::WebAuthn::formatAaguid("short") },
         qr/Invalid AAGUID length/,
         "An AAGUID that is not 16 bytes"
+    );
+    dies_like(
+        sub { Authen::WebAuthn::parse_okp_pem("not a key") },
+        qr/Cannot read OKP key/,
+        "A PEM that is no OKP key"
+    );
+};
+
+subtest "Ed448" => sub {
+    my $ed448 = Crypt::PK::Ed448->new;
+    $ed448->generate_key;
+    my $verifier =
+      Authen::WebAuthn::getPEMPubKeyVerifier( $ed448->export_key_pem("public"),
+        -53 );
+    ok( $verifier->( $ed448->sign_message($message), $message ),
+        "An Ed448 key verifies Ed448 signatures" );
+
+    my $ed25519 = Crypt::PK::Ed25519->new;
+    $ed25519->generate_key;
+    dies_like(
+        sub {
+            Authen::WebAuthn::getPEMPubKeyVerifier(
+                $ed25519->export_key_pem("public"), -53 );
+        },
+        qr/A Crypt::PK::Ed25519 key cannot be used with algorithm -53/,
+        "An Ed25519 key is refused for Ed448"
+    );
+    dies_like(
+        sub {
+            Authen::WebAuthn::getPEMPubKeyVerifier(
+                $ed448->export_key_pem("public"), -19 );
+        },
+        qr/A Crypt::PK::Ed448 key cannot be used with algorithm -19/,
+        "... and the reverse"
     );
 };
 
