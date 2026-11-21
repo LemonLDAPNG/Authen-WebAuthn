@@ -1,0 +1,45 @@
+#!/usr/bin/env perl
+#
+# Extracts the test vectors from the WebAuthn specification's source
+# (index.bs, https://github.com/w3c/webauthn) into vectors.json beside this
+# script, for t/21-Spec-test-vectors.t.
+#
+#   curl -LO https://raw.githubusercontent.com/w3c/webauthn/main/index.bs
+#   t/spec-vectors/extract index.bs
+
+use strict;
+use warnings;
+use JSON;
+use File::Basename qw(dirname);
+
+my $source = shift or die "usage: $0 index.bs\n";
+open my $in, "<", $source or die "$source: $!";
+my $spec = do { local $/; <$in> };
+
+my ($section) = $spec =~ /^(# Test Vectors #.*?)^# (?!Test Vectors)/ms
+  or die "No Test Vectors section in $source\n";
+
+my %vectors;
+my $name;
+my $ceremony;
+for my $line ( split /\n/, $section ) {
+    if ( $line =~ /^## (.+?) ## \{#(sctn-test-vectors-[\w-]+)\}/ ) {
+        $name                  = $2;
+        $ceremony              = "common";
+        $vectors{$name}{title} = $1;
+        next;
+    }
+    $name = undef if $line =~ /^## /;
+    next unless $name;
+    $ceremony = "registration"   if $line =~ /^\[=registration ceremony/;
+    $ceremony = "authentication" if $line =~ /^\[=authentication ceremony/;
+    if ( $line =~ /^(\w+) = h'([0-9a-f]*)'/ ) {
+        $vectors{$name}{$ceremony}{$1} = $2;
+    }
+}
+
+my $out = dirname($0) . "/vectors.json";
+open my $fh, ">", $out or die "$out: $!";
+print $fh JSON->new->canonical->pretty->encode( \%vectors );
+close $fh or die "$out: $!";
+printf "%d vectors written to %s\n", scalar( keys %vectors ), $out;
