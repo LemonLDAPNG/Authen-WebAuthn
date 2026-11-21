@@ -50,7 +50,7 @@ my $COSE_ALG = {
     -37 => {
         name              => "PS256",
         key_type          => "RSA",
-        signature_options => [ "SHA256", "pss" ]
+        signature_options => [ "SHA256", "pss", 32 ]
     },
     -65535 => {
         name              => "RS1",
