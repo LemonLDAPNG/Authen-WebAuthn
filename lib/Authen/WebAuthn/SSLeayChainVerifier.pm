@@ -24,6 +24,13 @@ sub getX509 {
             }
             else {
                 $x509 = Net::SSLeay::d2i_X509_bio($bio);
+
+                # d2i reads one certificate and ignores what follows it
+                if ( $x509 != 0 and Net::SSLeay::BIO_pending($bio) > 0 ) {
+                    Net::SSLeay::X509_free($x509);
+                    Net::SSLeay::BIO_free($bio);
+                    die "Trailing bytes after certificate";
+                }
             }
             Net::SSLeay::BIO_free($bio);
 

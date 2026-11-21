@@ -79,11 +79,31 @@ subtest "A trust anchor that is not a certificate" => sub {
     for my $anchors ( ["garbage"], [ $main::yubico_u2f_root, "garbage" ] ) {
         ok( !register( %packed, trust_anchors => $anchors ),
             "Registration fails" );
-        like( $@, qr/Could not parse certificate/,
-            "With the expected message" );
+        my $index = $#$anchors;
+        like(
+            $@,
+            qr/Trust anchor $index is not a PEM certificate/,
+            "With the expected message, naming the anchor"
+        );
         is( Net::SSLeay::ERR_peek_error(),
             0, "OpenSSL's error queue is left empty" );
     }
+
+    # Before, the valid anchor was never tried, and this registration
+    # quietly became Self
+    ok(
+        !register(
+            %packed,
+            trust_anchors => [ "garbage", $main::yubico_u2f_root ],
+            allow_untrusted_attestation => 1,
+        ),
+        "Also with allow_untrusted_attestation"
+    );
+    like(
+        $@,
+        qr/Trust anchor 0 is not a PEM certificate/,
+        "With the expected message"
+    );
 };
 
 subtest "Packed attestation" => sub {
@@ -121,6 +141,21 @@ subtest "FIDO U2F attestation" => sub {
     like(
         $@,
         qr/Missing certificate field in attestation statement/,
+        "With the expected message"
+    );
+
+    ok(
+        !register(
+            with_statement(
+                \%u2f, sub { push @{ $_[0]->{x5c} }, $_[0]->{x5c}->[0] }
+            ),
+            trust_anchors => [$main::yubico_u2f_root],
+        ),
+        "Two certificates are refused"
+    );
+    like(
+        $@,
+        qr/fido-u2f attestation must have exactly one certificate/,
         "With the expected message"
     );
 

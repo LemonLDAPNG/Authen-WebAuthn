@@ -174,6 +174,35 @@ for my $uv (qw(Required require 1)) {
     like( $@, qr/Invalid requested_uv: $uv/, "With the expected message" );
 }
 
+subtest "Conditional create" => sub {
+    my $absent = registration_flags( userPresent => 0 );
+    ok( !register( undef, $absent ), "A registration without User Present" );
+    like(
+        $@,
+        qr/User not present during WebAuthn registration/,
+        "... is refused"
+    );
+    ok(
+        register( { mediation => "conditional" }, $absent ),
+        "... unless the mediation was conditional"
+    );
+    ok(
+        !register(
+            { mediation => "conditional", requested_uv => "required" }, $absent
+        ),
+        "... which still checks user verification"
+    );
+    ok(
+        !register( { mediation => "Conditional" } ),
+        "An unknown mediation is refused"
+    );
+    like(
+        $@,
+        qr/Invalid mediation: Conditional/,
+        "... with the expected message"
+    );
+};
+
 subtest "Signature counter" => sub {
     $authenticator->sign_count(5);
     ok( authenticate( undef,  stored_sign_count => 4 ), "A higher count" );

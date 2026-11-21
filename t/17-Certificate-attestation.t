@@ -1,4 +1,5 @@
 use Test::More;
+use Crypt::OpenSSL::X509;
 use Crypt::PK::ECC;
 use MIME::Base64 qw(encode_base64url);
 use strict;
@@ -117,6 +118,72 @@ subtest "AAGUID extension" => sub {
 qr/AAGUID from certificate \(0102030405060708090A0B0C0D0E0F10\) does not match/,
         "Not matching"
     );
+
+    # Refused by the chain check too, but not when the leaf is the anchor
+    refused(
+        register(
+            authenticator(
+                certificate => "packed-aaguid-critical",
+                aaguid      => $aaguid
+            ),
+            trust_anchors => [ pem("packed-aaguid-critical") ],
+        ),
+        qr/id-fido-gen-ce-aaguid extension must not be critical/,
+        "Marked critical"
+    );
+};
+
+subtest "Certificate key and algorithm" => sub {
+    my $key = sub {
+        Crypt::OpenSSL::X509->new_from_string( pem(shift) )->pubkey;
+    };
+    for my $case (
+        [ "packed-p384", -7 ],
+        [ "packed-p256", -35 ],
+        [ "packed-p384", -9 ]
+      )
+    {
+        my ( $certificate, $alg ) = @$case;
+        ok(
+            !eval {
+                Authen::WebAuthn::getPEMPubKeyVerifier( $key->($certificate),
+                    $alg );
+            },
+            "$certificate with algorithm $alg is refused"
+        );
+        like(
+            $@,
+            qr/Curve secp\d+r1 cannot be used with algorithm $alg/,
+            "... with the expected message"
+        );
+    }
+    ok( Authen::WebAuthn::getPEMPubKeyVerifier( $key->("packed-p384"), -35 ),
+        "packed-p384 with ES384 is accepted" );
+};
+
+subtest "Bytes after a certificate" => sub {
+    my $der = Crypt::OpenSSL::X509->new_from_string( pem("packed-p256") )
+      ->as_string(Crypt::OpenSSL::X509::FORMAT_ASN1);
+    ok( Authen::WebAuthn::_read_certificate($der), "A certificate" );
+    ok( !eval { Authen::WebAuthn::_read_certificate( $der . "JUNK" ) },
+        "... with bytes after it is refused" );
+    like(
+        $@,
+        qr/Trailing bytes after certificate/,
+        "... with the expected message"
+    );
+
+    my $result = eval {
+        Authen::WebAuthn::SSLeayChainVerifier::verify_chain( [ pem("root") ],
+            $der . "JUNK", [] );
+    };
+    ok( !( $result && $result->{result} ), "... also by the chain verifier" );
+    like(
+        $@ || $result->{message},
+        qr/Trailing bytes after certificate/,
+        "... with the expected message"
+    );
+    is( Net::SSLeay::ERR_peek_error(), 0, "OpenSSL's error queue is empty" );
 };
 
 subtest "Certificate requirements" => sub {

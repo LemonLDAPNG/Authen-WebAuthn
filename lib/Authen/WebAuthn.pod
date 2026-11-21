@@ -343,18 +343,31 @@ The C<extensions> you passed to the browser. Given, an output for an extension
 you did not request is ignored, or refused with
 C<< allow_unsolicited_extensions => 0 >>. The same applies to the authenticator
 extension outputs in the authenticator data (C<credProtect>, C<hmac-secret>,
-C<minPinLength>, C<credBlob>), which are also checked for type.
+C<hmac-secret-mc>, C<minPinLength>, C<credBlob>), which are also checked for
+type.
 
 =item allow_unsolicited_extensions
 
 1 (the default) to ignore extension outputs you did not request, 0 to refuse
 them. Only applies when C<requested_extensions> is given.
 
+=item mediation
+
+The C<mediation> you passed to C<navigator.credentials.create()>. With
+C<conditional> (a passkey created automatically after a password sign-in), the
+user may not have been present, and the User Present flag is not required;
+user verification is still checked as C<requested_uv> says.
+
 =back
 
 The credential public key is checked before registration succeeds: its key
 type must match its algorithm, it must parse, and an RSA key must be between
 2048 and 4096 bits long, with an odd modulus and exponent.
+
+One step of the specification is yours: before storing the credential, refuse
+it if its C<credential_id> is already registered, to any user. Otherwise an
+attacker who registers a victim's credential ID and public key under their own
+account can have the victim sign into it.
 
 This method croaks on errors. If the registration was successful, it returns a hashref with the following subkeys:
 
@@ -427,9 +440,13 @@ An arrayref of DER-encoded certificates provided by the authenticator
 
 =item aaguid
 
-The verified AAGUID of the authenticator, this is only provided if the
-attestation was verified successfully and chained up to a trusted root
-certificate.
+The AAGUID of the authenticator, provided only if the attestation was verified
+and chained up to a trusted root certificate. It is checked against the
+attestation certificate when the certificate carries an AAGUID extension;
+otherwise it is only as trustworthy as your choice of trust anchors, since a
+root shared by several models will vouch for any of their AAGUIDs. Choosing the
+anchors by AAGUID (a C<trust_anchors> subroutine reading the FIDO Metadata
+Service, for instance) binds it.
 
 =back
 

@@ -138,6 +138,9 @@ my %DER             = (
     SET          => [ $DER_CONSTRUCTED, 17 ],
 );
 
+# COSE elliptic curves (RFC 9053, section 7.1) by CryptX's name
+my %COSE_CURVE_NAME = ( 1 => 'secp256r1', 2 => 'secp384r1', 3 => 'secp521r1' );
+
 # Values the WebAuthn enumerations allow, for the options that take one
 my %OPTION_VALUES = (
     requested_uv             => [qw(required preferred discouraged)],
@@ -380,8 +383,17 @@ sub validate_registration {
               . ")" );
     }
 
-    # 14. Verify that the User Present bit of the flags in authData is set.
-    unless ( $authenticator_data->{flags}->{userPresent} == 1 ) {
+    # 14. If options.mediation is not set to conditional, verify that the
+    # User Present bit of the flags in authData is set.
+    my $mediation = $params{mediation} // "optional";
+    unless ( grep { $_ eq $mediation }
+        qw(silent optional conditional required) )
+    {
+        croak("Invalid mediation: $mediation");
+    }
+    unless ( $mediation eq "conditional"
+        or $authenticator_data->{flags}->{userPresent} == 1 )
+    {
         croak("User not present during WebAuthn registration");
     }
 
@@ -843,10 +855,11 @@ my %CLIENT_EXTENSION_OUTPUTS = (
 
 my %AUTHENTICATOR_EXTENSION_OUTPUTS = (
     registration => {
-        credProtect   => "credProtect",
-        "hmac-secret" => "boolean",
-        minPinLength  => "count",
-        credBlob      => "boolean",
+        credProtect      => "credProtect",
+        "hmac-secret"    => "boolean",
+        minPinLength     => "count",
+        credBlob         => "boolean",
+        "hmac-secret-mc" => "bytes",
     },
     authentication => {
         "hmac-secret" => "bytes",
@@ -857,7 +870,7 @@ my %AUTHENTICATOR_EXTENSION_OUTPUTS = (
 # The authenticator extension each client extension input asks for
 my %AUTHENTICATOR_EXTENSION_FOR = (
     credentialProtectionPolicy => "credProtect",
-    prf                        => "hmac-secret",
+    prf                        => [qw(hmac-secret hmac-secret-mc)],
     hmacCreateSecret           => "hmac-secret",
     minPinLength               => "minPinLength",
     credBlob                   => "credBlob",
@@ -880,8 +893,11 @@ sub _check_extensions {
     if ($requested) {
         $solicited_client        = { map { $_ => 1 } keys %$requested };
         $solicited_authenticator = {
-            map { ( $AUTHENTICATOR_EXTENSION_FOR{$_} // $_ ) => 1 }
-              keys %$requested
+            map { $_ => 1 }
+            map {
+                my $ids = $AUTHENTICATOR_EXTENSION_FOR{$_} // $_;
+                ref $ids ? @$ids : $ids
+            } keys %$requested
         };
     }
 
@@ -936,7 +952,7 @@ sub _check_extension_outputs {
 my %IS_VALID = (
     boolean   => \&_is_boolean,
     base64url => sub { _is_string( $_[0] ) and $_[0] =~ /^[A-Za-z0-9_-]*$/ },
-    bytes     => \&_is_string,
+    bytes     => sub { _is_string( $_[0] ) and !utf8::is_utf8( $_[0] ) },
     count     => sub { _is_string( $_[0] ) and $_[0] =~ /^\d+$/ },
 
     # userVerificationOptional (1), userVerificationOptionalWithCredentialIDList
@@ -1252,6 +1268,20 @@ sub check_attestation_trust {
     my @trust_chain = @{ $attestation_result->{trust_path} };
     shift @trust_chain;
 
+    # An anchor that does not parse would otherwise fail every chain, or
+    # with allow_untrusted_attestation, quietly make every attestation Self
+    if ( ref($trust_anchors) eq "ARRAY" ) {
+        for my $i ( 0 .. $#$trust_anchors ) {
+            next if eval {
+                Crypt::OpenSSL::X509->new_from_string( $trust_anchors->[$i],
+                    Crypt::OpenSSL::X509::FORMAT_PEM );
+            };
+            my $error = $@;
+            Net::SSLeay::ERR_clear_error();
+            croak("Trust anchor $i is not a PEM certificate: $error");
+        }
+    }
+
     if ( $self->matchCertificateInList( $attn_cert, $trust_anchors ) ) {
         return 1;
     }
@@ -1324,10 +1354,9 @@ sub parse_ecc_cose {
     my $curve = $cose_struct->{-1};
     my $x     = _require_bytes( $cose_struct->{-2}, "EC2 key x coordinate" );
     my $y     = _require_bytes( $cose_struct->{-3}, "EC2 key y coordinate" );
-    my $id_to_curve = { 1 => 'secp256r1', 2 => 'secp384r1', 3 => 'secp521r1', };
 
     my $pk         = Crypt::PK::ECC->new();
-    my $curve_name = $id_to_curve->{$curve};
+    my $curve_name = $COSE_CURVE_NAME{$curve};
     unless ($curve_name) {
         croak "Unsupported curve $curve";
     }
@@ -1471,6 +1500,15 @@ sub get_verifier_for_alg {
 
         # uncoverable statement
         croak "Could not parse public key";
+    }
+
+    # A certificate key says its curve only once read: ES256 with a P-384
+    # key is not ES256
+    if ( $alg_config->{curve} and $public_key->isa("Crypt::PK::ECC") ) {
+        my $curve_name = $public_key->key2hash->{curve_name};
+        unless ( $curve_name eq $COSE_CURVE_NAME{ $alg_config->{curve} } ) {
+            croak "Curve $curve_name cannot be used with algorithm $alg_num";
+        }
     }
 
     my @signature_options = @{ $alg_config->{signature_options} };
@@ -1727,8 +1765,7 @@ sub attest_packed_x5c {
 
     my ( $x5c, $key, $key_alg );
     eval {
-        $x5c = Crypt::OpenSSL::X509->new_from_string( $x5c_der,
-            Crypt::OpenSSL::X509::FORMAT_ASN1 );
+        $x5c = _read_certificate($x5c_der);
 
         # Crypt::OpenSSL::X509 cannot read Ed25519 keys
         my $alg = $COSE_ALG->{$sig_alg};
@@ -1778,11 +1815,24 @@ sub attest_packed_x5c {
 
 # If the attestation certificate has an id-fido-gen-ce-aaguid extension,
 # it must match the AAGUID in the authenticator data
+# A DER certificate, with nothing after it
+sub _read_certificate {
+    my ($der) = @_;
+    my $x509 = Crypt::OpenSSL::X509->new_from_string( $der,
+        Crypt::OpenSSL::X509::FORMAT_ASN1 );
+    croak "Trailing bytes after certificate"
+      if length( $x509->as_string(Crypt::OpenSSL::X509::FORMAT_ASN1) ) !=
+      length $der;
+    return $x509;
+}
+
 sub _check_aaguid_extension {
     my ( $x509, $authenticator_data ) = @_;
 
     my $aaguid_ext = $x509->extensions_by_oid->{'1.3.6.1.4.1.45724.1.1.4'};
     return unless $aaguid_ext;
+    croak "id-fido-gen-ce-aaguid extension must not be critical"
+      if $aaguid_ext->critical;
 
     my $ad_aaguid   = $authenticator_data->{attestedCredentialData}->{aaguid};
     my $cert_aaguid = $aaguid_ext->value;
@@ -1999,10 +2049,8 @@ sub attest_tpm {
     {
         croak "Invalid certificate field in attestation statement";
     }
-    my $aik_cert = eval {
-        Crypt::OpenSSL::X509->new_from_string( $x5c->[0],
-            Crypt::OpenSSL::X509::FORMAT_ASN1 );
-    } or croak "Cannot read attestation certificate: $@";
+    my $aik_cert = eval { _read_certificate( $x5c->[0] ) }
+      or croak "Cannot read attestation certificate: $@";
 
     # - Verify that aikCert meets the requirements in § 8.3.1 TPM
     #   Attestation Statement Certificate Requirements.
@@ -2281,10 +2329,8 @@ sub attest_apple {
     {
         croak "Invalid certificate field in attestation statement";
     }
-    my $cred_cert = eval {
-        Crypt::OpenSSL::X509->new_from_string( $x5c->[0],
-            Crypt::OpenSSL::X509::FORMAT_ASN1 );
-    } or croak "Cannot read attestation certificate: $@";
+    my $cred_cert = eval { _read_certificate( $x5c->[0] ) }
+      or croak "Cannot read attestation certificate: $@";
 
     # 2. Concatenate authenticatorData and clientDataHash to form
     # nonceToHash.
@@ -2359,10 +2405,8 @@ sub attest_android_key {
     {
         croak "Invalid certificate field in attestation statement";
     }
-    my $cred_cert = eval {
-        Crypt::OpenSSL::X509->new_from_string( $x5c->[0],
-            Crypt::OpenSSL::X509::FORMAT_ASN1 );
-    } or croak "Cannot read attestation certificate: $@";
+    my $cred_cert = eval { _read_certificate( $x5c->[0] ) }
+      or croak "Cannot read attestation certificate: $@";
 
     # Verify that sig is a valid signature over the concatenation of
     # authenticatorData and clientDataHash using the public key in the first
@@ -2537,12 +2581,14 @@ sub attest_u2f {
     {
         croak "Missing certificate field in attestation statement";
     }
+    unless ( @{ $attestation_statement->{x5c} } == 1 ) {
+        croak "fido-u2f attestation must have exactly one certificate";
+    }
 
     my $x5c_der         = $attestation_statement->{x5c}->[0];
     my $attestation_key = Crypt::PK::ECC->new();
     eval {
-        my $x5c = Crypt::OpenSSL::X509->new_from_string( $x5c_der,
-            Crypt::OpenSSL::X509::FORMAT_ASN1 );
+        my $x5c     = _read_certificate($x5c_der);
         my $key_pem = $x5c->pubkey();
         $attestation_key->import_key( \$key_pem );
     };

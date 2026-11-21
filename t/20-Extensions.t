@@ -274,6 +274,28 @@ qr/Authenticator extension output credProtect is not a valid credProtect/,
     );
 };
 
+# With prf at creation, a CTAP 2.2 authenticator returns hmac-secret-mc
+subtest "PRF at registration" => sub {
+    my $result = register(
+        {
+            requested_extensions         => { prf => { eval => {} } },
+            allow_unsolicited_extensions => 0,
+        },
+        registration_extensions(
+            "hmac-secret"    => Types::Serialiser::true,
+            "hmac-secret-mc" => "\x01" x 48,
+        )
+    );
+    ok( $result, "hmac-secret and hmac-secret-mc are both requested" )
+      or diag($@);
+    is(
+        $result
+          && length $result->{authenticator_extensions}->{"hmac-secret-mc"},
+        48,
+        "... and returned"
+    );
+};
+
 subtest "Authentication" => sub {
     my $result = authenticate(
         assertion_extensions( "hmac-secret" => "\x01" x 32 ),

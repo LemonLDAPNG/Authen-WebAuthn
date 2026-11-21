@@ -36,6 +36,14 @@ Unreleased
   - Authenticator data with Backup State but not Backup Eligibility, and
     credential IDs over 1023 bytes, are refused, as WebAuthn Level 3
     requires
+  - A trust anchor that is not a PEM certificate is refused, naming it.
+    It used to make every chain fail, or with allow_untrusted_attestation
+    make every attestation Self without a word
+  - An attestation certificate's curve must match the attestation
+    algorithm (ES256 with a P-384 key was accepted)
+  - fido-u2f attestation must carry exactly one certificate, and an
+    id-fido-gen-ce-aaguid extension marked critical is refused
+  - Bytes after a DER attestation certificate are refused
 
   [New]
   - ES384, ES512 and EdDSA (Ed25519) credential keys, and RFC 9864's
@@ -45,6 +53,8 @@ Unreleased
     check their options against the WebAuthn enumerations and take hints
     and extensions, and offer EdDSA, ES256 and RS256 by default
   - allowed_algs option to validate_registration
+  - mediation option to validate_registration: with conditional
+    (automatic passkey upgrade), User Present is not required
   - appid option to validate_assertion, for U2F AppIDs other than the
     origin
   - validate_registration and validate_assertion return user_verified,
@@ -58,7 +68,8 @@ Unreleased
   - Extension outputs are checked: the client's (appid, appidExclude,
     credProps, largeBlob, prf) and the authenticator's (credProtect,
     hmac-secret, minPinLength, credBlob), against their types and against
-    what was requested; a malformed output nobody requested is left out.
+    what was requested (prf asks for hmac-secret and hmac-secret-mc); a
+    malformed output nobody requested is left out.
     validate_registration reports whether the credential is discoverable
 
   [Authen::WebAuthn::Test]
