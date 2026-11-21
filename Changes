@@ -6,6 +6,7 @@ Unreleased
   - Fix PS256 signature verification (32 byte salt)
   - Support ES384, ES512 and EdDSA (Ed25519) credential keys
   - Add allowed_algs option to validate_registration
+  - Add generate_registration_options and generate_assertion_options
   - Return user_verified, backup_eligible and backup_state
   - Reject a Backup State flag without Backup Eligibility
   - Reject credential IDs longer than 1023 bytes

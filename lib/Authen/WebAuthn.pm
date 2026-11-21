@@ -9,6 +9,7 @@ use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
 use Crypt::PK::Ed25519;
+use Crypt::PRNG;
 use Crypt::OpenSSL::X509 1.808;
 use CBOR::XS 1.6 ();
 use URI;
@@ -85,6 +86,99 @@ my $COSE_ALG = {
         signature_options => [ "SHA1", "v1.5" ]
     }
 };
+
+# ES256 and RS256: what every platform authenticator and security key can do
+my $DEFAULT_ALGS = [ -7, -257 ];
+
+sub generate_registration_options {
+    my ( $self, %params ) = @_;
+
+    for my $required (qw(rp_name user_id user_name)) {
+        unless ( defined $params{$required} and length $params{$required} ) {
+            croak("Missing $required");
+        }
+    }
+
+    my $algs = $params{allowed_algs};
+    $algs = $DEFAULT_ALGS unless ref($algs) eq "ARRAY" and @$algs;
+    for my $alg (@$algs) {
+        croak("Unsupported algorithm $alg") unless $COSE_ALG->{$alg};
+    }
+
+    my $options = {
+        rp   => { id => $self->rp_id, name => $params{rp_name} },
+        user => {
+            id          => encode_base64url( $params{user_id} ),
+            name        => $params{user_name},
+            displayName => $params{user_display_name} // $params{user_name},
+        },
+        challenge        => $params{challenge_b64} // _generate_challenge(),
+        pubKeyCredParams =>
+          [ map { { type => "public-key", alg => $_ + 0 } } @$algs ],
+        attestation            => $params{attestation} // "none",
+        excludeCredentials     =>
+          _credential_descriptors( $params{exclude_credentials} ),
+        authenticatorSelection => {
+            userVerification => $params{requested_uv} // "preferred",
+            (
+                $params{resident_key}
+                ? ( residentKey => $params{resident_key} )
+                : ()
+            ),
+            (
+                $params{authenticator_attachment}
+                ? ( authenticatorAttachment =>
+                      $params{authenticator_attachment} )
+                : ()
+            ),
+        },
+    };
+    $options->{timeout} = $params{timeout} + 0 if $params{timeout};
+
+    return $options;
+}
+
+sub generate_assertion_options {
+    my ( $self, %params ) = @_;
+
+    my $options = {
+        rpId             => $self->rp_id,
+        challenge        => $params{challenge_b64} // _generate_challenge(),
+        userVerification => $params{requested_uv} // "preferred",
+        allowCredentials =>
+          _credential_descriptors( $params{allow_credentials} ),
+    };
+    $options->{timeout} = $params{timeout} + 0 if $params{timeout};
+
+    return $options;
+}
+
+sub _generate_challenge {
+    return encode_base64url( Crypt::PRNG::random_bytes(32) );
+}
+
+# Accepts base64url credential IDs, or hashrefs with an id and transports
+sub _credential_descriptors {
+    my ($credentials) = @_;
+
+    return [] unless ref($credentials) eq "ARRAY";
+    return [
+        map {
+            my $credential = ref($_) eq "HASH" ? $_ : { id => $_ };
+            croak("Missing credential id") unless $credential->{id};
+            {
+                type => "public-key",
+                id   => $credential->{id},
+                (
+                    ref( $credential->{transports} ) eq "ARRAY"
+                      && @{ $credential->{transports} }
+                    ? ( transports => $credential->{transports} )
+                    : ()
+                ),
+            }
+        } @$credentials
+    ];
+}
 
 sub validate_registration {
     my ( $self, %params ) = @_;

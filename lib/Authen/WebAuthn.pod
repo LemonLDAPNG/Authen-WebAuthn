@@ -5,7 +5,7 @@
 
 This module lets you validate L<Web Authentication|https://www.w3.org/TR/webauthn/> registration and authentication responses.
 
-Currently, it does not handle the generation of registration and authentication requests.
+It can also build the options for those requests.
 
 The transmission of requests and responses from the application server to the
 user's browser, and interaction with the WebAuthn browser API is also out of
@@ -72,6 +72,123 @@ expecting to find in registration or authentication responses. This must
 contain the scheme and port of your application, but no path
 (http://app.example.com:8080 or https://app.example.com)
 
+
+=method generate_registration_options
+
+    my $options = $webauthn_rp->generate_registration_options(
+        rp_name   => "Example",
+        user_id   => $user_id,
+        user_name => 'alice@example.com',
+    );
+
+Builds the C<PublicKeyCredentialCreationOptions> for a registration, as a
+hashref that can be serialized to JSON and given to
+C<PublicKeyCredential.parseCreationOptionsFromJSON()> in the browser. Binary
+values are base64url-encoded.
+
+Store C<< $options->{challenge} >> on the server, with the session for
+instance, and pass it to C<validate_registration> as C<challenge_b64>.
+
+It takes the following named arguments
+
+=over 4
+
+=item rp_name
+
+The name of your Relying Party, as shown to the user. Required.
+
+=item user_id
+
+The user handle: an opaque identifier of the user account, at most 64 bytes,
+which must not contain personal information. Required.
+
+=item user_name
+
+The name of the user account, such as a login or an email address. Required.
+
+=item user_display_name
+
+A friendlier name for the user account. Defaults to C<user_name>.
+
+=item challenge_b64
+
+The base64url-encoded challenge. By default, 32 random bytes are generated.
+
+=item allowed_algs
+
+An arrayref of COSE algorithm identifiers, in order of preference. Defaults to
+C<[-7, -257]> (ES256 and RS256). Pass the same value to
+C<validate_registration>.
+
+=item requested_uv
+
+C<required>, C<preferred> (the default) or C<discouraged>. Pass the same value
+to C<validate_registration>.
+
+=item attestation
+
+The attestation conveyance preference. Defaults to C<none>.
+
+=item exclude_credentials
+
+An arrayref of the credentials the user already has, so that the same
+authenticator is not registered twice. Each item is a base64url-encoded
+credential ID, or a hashref with an C<id> and an optional arrayref of
+C<transports>.
+
+=item resident_key
+
+C<required>, C<preferred> or C<discouraged>. Omitted by default.
+
+=item authenticator_attachment
+
+C<platform> or C<cross-platform>. Omitted by default.
+
+=item timeout
+
+How long the browser may wait for the user, in milliseconds. Omitted by
+default.
+
+=back
+
+=method generate_assertion_options
+
+    my $options = $webauthn_rp->generate_assertion_options(
+        allow_credentials => \@credential_ids,
+    );
+
+Builds the C<PublicKeyCredentialRequestOptions> for an authentication, as a
+hashref that can be serialized to JSON and given to
+C<PublicKeyCredential.parseRequestOptionsFromJSON()> in the browser.
+
+Store C<< $options->{challenge} >> on the server and pass it to
+C<validate_assertion> as C<challenge_b64>.
+
+It takes the following named arguments, all optional
+
+=over 4
+
+=item challenge_b64
+
+The base64url-encoded challenge. By default, 32 random bytes are generated.
+
+=item requested_uv
+
+C<required>, C<preferred> (the default) or C<discouraged>. Pass the same value
+to C<validate_assertion>.
+
+=item allow_credentials
+
+An arrayref of the credentials that may be used, in the same format as
+C<exclude_credentials> above. Leave it out to let the user pick a discoverable
+credential.
+
+=item timeout
+
+How long the browser may wait for the user, in milliseconds. Omitted by
+default.
+
+=back
 
 =method validate_registration
 
