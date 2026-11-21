@@ -53,3 +53,19 @@ jobs:
             Net::SSLeay
             URI
       - run: prove -lv xt/valgrind.t
+
+  dist:
+    name: dzil build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: "5.40"
+          install-modules-with: cpanm
+          install-modules-args: --notest
+          install-modules: Dist::Zilla
+      - run: dzil authordeps --missing | cpanm --notest
+      - run: dzil listdeps --missing | cpanm --notest
+      - run: dzil build
+      - run: dzil test
