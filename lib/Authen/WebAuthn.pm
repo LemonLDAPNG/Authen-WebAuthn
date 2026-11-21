@@ -266,7 +266,8 @@ sub validate_registration {
         credential_id      => encode_base64url($credential_id_bin),
         credential_pubkey  => encode_base64url($credential_pubkey_cose),
         signature_count    => $signature_count,
-        attestation_result => $attestation_result
+        attestation_result => $attestation_result,
+        _flags_result( $authenticator_data->{flags} ),
     };
 }
 
@@ -318,7 +319,7 @@ sub validate_assertion {
     # 12. Verify that the value of C.challenge equals the base64url encoding of
     # options.challenge.
     unless ($challenge_b64) {
-        croak("Empty registration challenge");
+        croak("Empty authentication challenge");
     }
 
     unless ( $challenge_b64 eq $client_data->{challenge} ) {
@@ -413,7 +414,21 @@ sub validate_assertion {
         }
     }
 
-    return { success => 1, signature_count => $signature_count, };
+    return {
+        success         => 1,
+        signature_count => $signature_count,
+        _flags_result( $authenticator_data->{flags} ),
+    };
+}
+
+# The flags of the authenticator data a Relying Party may want to store
+sub _flags_result {
+    my ($flags) = @_;
+    return (
+        user_verified   => ( $flags->{userVerified}   ? 1 : 0 ),
+        backup_eligible => ( $flags->{backupEligible} ? 1 : 0 ),
+        backup_state    => ( $flags->{backupState}    ? 1 : 0 ),
+    );
 }
 
 # Everything decoded here was sent by the client. A plain CBOR::XS decoder
@@ -775,6 +790,11 @@ sub getAttestedCredentialData {
     $res->{aaguid} = $aaguid;
     $res->{credentialIdLength} =
       unpack( 'n', substr( $attestedCredentialData, 16, 2 ) );
+
+    # https://www.w3.org/TR/webauthn-3/#credential-id
+    if ( $res->{credentialIdLength} > 1023 ) {
+        croak("Credential ID is longer than 1023 bytes");
+    }
     $res->{credentialId} =
       substr( $attestedCredentialData, 18, $res->{credentialIdLength} );
     my ( $cose_alg, $length_cbor_pubkey, $cose_alg_num ) =
@@ -809,6 +829,12 @@ sub getAuthData {
     $res->{flags}     = resolveFlags( unpack( 'C', substr( $ad, 32, 1 ) ) );
     $res->{signCount} = unpack( 'N', substr( $ad, 33, 4 ) );
 
+    # A credential cannot be backed up unless it is eligible for backup
+    # https://www.w3.org/TR/webauthn-3/#sctn-credential-backup
+    if ( $res->{flags}->{backupState} and !$res->{flags}->{backupEligible} ) {
+        croak("Backup State flag is set but Backup Eligibility is not");
+    }
+
     my $attestedCredentialDataLength = 0;
     if ( $res->{flags}->{atIncluded} ) {
         my $attestedCredentialData =
@@ -838,10 +864,12 @@ sub getAuthData {
 sub resolveFlags {
     my ($bits) = @_;
     return {
-        userPresent  => ( ( $bits & 1 ) == 1 ),
-        userVerified => ( ( $bits & 4 ) == 4 ),
-        atIncluded   => ( ( $bits & 64 ) == 64 ),
-        edIncluded   => ( ( $bits & 128 ) == 128 ),
+        userPresent    => ( ( $bits & 1 ) == 1 ),
+        userVerified   => ( ( $bits & 4 ) == 4 ),
+        backupEligible => ( ( $bits & 8 ) == 8 ),
+        backupState    => ( ( $bits & 16 ) == 16 ),
+        atIncluded     => ( ( $bits & 64 ) == 64 ),
+        edIncluded     => ( ( $bits & 128 ) == 128 ),
     };
 }
 

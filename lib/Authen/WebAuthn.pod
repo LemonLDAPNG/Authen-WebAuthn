@@ -179,6 +179,21 @@ The base64url-encoded public key for this authenticator, in COSE format
 
 The initial signature count of this authenticator
 
+=item user_verified
+
+1 if the authenticator verified the user (PIN, biometrics...) during this
+operation, 0 otherwise
+
+=item backup_eligible
+
+1 if the credential may be backed up or synchronized between devices (a
+multi-device credential), 0 if it is bound to a single device. This does not
+change during the lifetime of a credential.
+
+=item backup_state
+
+1 if the credential is currently backed up, 0 otherwise
+
 =back
 
 This information is supposed to be persisted in the Relying Party, usually in some sort of database
@@ -269,6 +284,21 @@ hashref with the following subkeys:
 =item signature_count
 
 The new signature count, to be updated in the Relying Party's database
+
+=item user_verified
+
+1 if the authenticator verified the user (PIN, biometrics...) during this
+operation, 0 otherwise
+
+=item backup_eligible
+
+1 if the credential may be backed up or synchronized between devices (a
+multi-device credential), 0 if it is bound to a single device. This does not
+change during the lifetime of a credential.
+
+=item backup_state
+
+1 if the credential is currently backed up, 0 otherwise
 
 =back
 

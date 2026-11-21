@@ -1,5 +1,14 @@
 Revision history for Authen-WebAuthn
  
+Unreleased
+  - Decode client-supplied CBOR with CBOR::XS->new_safe, so that a tagged
+    value cannot instantiate a Perl object
+  - Fix PS256 signature verification (32 byte salt)
+  - Add allowed_algs option to validate_registration
+  - Return user_verified, backup_eligible and backup_state
+  - Reject a Backup State flag without Backup Eligibility
+  - Reject credential IDs longer than 1023 bytes
+
 0.005
   - Add allow_unknown_attestation_format option
 

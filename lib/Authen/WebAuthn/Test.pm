@@ -20,6 +20,8 @@ has sign_count    => ( is => 'rw', default => 0 );
 use constant {
     FLAG_UP => 1,
     FLAG_UV => 4,
+    FLAG_BE => 8,
+    FLAG_BS => 16,
     FLAG_AT => 64,
     FLAG_ED => 128,
 };
@@ -70,9 +72,16 @@ sub makeFlags {
     my ($flags) = @_;
     my $up = $flags->{userPresent}  ? 1 : 0;
     my $uv = $flags->{userVerified} ? 1 : 0;
+    my $be = $flags->{backupEligible} ? 1 : 0;
+    my $bs = $flags->{backupState} ? 1 : 0;
     my $at = $flags->{atIncluded}   ? 1 : 0;
     my $ed = $flags->{edIncluded}   ? 1 : 0;
-    return ( FLAG_UP * $up + FLAG_UV * $uv + FLAG_AT * $at + FLAG_ED * $ed );
+    return ( FLAG_UP * $up +
+          FLAG_UV * $uv +
+          FLAG_BE * $be +
+          FLAG_BS * $bs +
+          FLAG_AT * $at +
+          FLAG_ED * $ed );
 }
 
 # Transform string GUID into binary
