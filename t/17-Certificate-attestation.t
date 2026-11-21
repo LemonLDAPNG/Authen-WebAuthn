@@ -186,6 +186,32 @@ subtest "Bytes after a certificate" => sub {
     is( Net::SSLeay::ERR_peek_error(), 0, "OpenSSL's error queue is empty" );
 };
 
+# validate_registration checks trust anchors before they get here, but the
+# chain verifier is also called directly
+subtest "Chain verifier input that does not parse" => sub {
+    my $der = Crypt::OpenSSL::X509->new_from_string( pem("packed-p256") )
+      ->as_string(Crypt::OpenSSL::X509::FORMAT_ASN1);
+    for my $case (
+        [ [ pem("root") ], "garbage", "A certificate" ],
+        [ [ pem("root"), "garbage" ], $der, "The second of two anchors" ],
+      )
+    {
+        my ( $anchors, $leaf, $name ) = @$case;
+        my $result = eval {
+            Authen::WebAuthn::SSLeayChainVerifier::verify_chain( $anchors,
+                $leaf, [] );
+        };
+        ok( !( $result && $result->{result} ), "$name is refused" );
+        like(
+            $@ || $result->{message},
+            qr/Could not parse certificate/,
+            "... with the expected message"
+        );
+        is( Net::SSLeay::ERR_peek_error(), 0,
+            "... leaving OpenSSL's error queue empty" );
+    }
+};
+
 subtest "Certificate requirements" => sub {
     my %expected = (
         "bad-v1"    => qr/Invalid certificate version/,
