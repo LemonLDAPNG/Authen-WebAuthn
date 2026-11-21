@@ -305,6 +305,8 @@ sub _credential_descriptors {
 
 sub validate_registration {
     my ( $self, %params ) = @_;
+    my $credential;
+    ( $credential, %params ) = _credential_params( "registration", %params );
 
     my (
         $challenge_b64,               $requested_uv,
@@ -519,7 +521,19 @@ sub validate_registration {
     my $credential_pubkey_cose =
       $authenticator_data->{attestedCredentialData}->{credentialPublicKey};
     my $signature_count = $authenticator_data->{signCount};
+
+    # The credential the browser reports is the one the authenticator made
+    if ( defined $params{credential_id_b64} ) {
+        my $reported = _decode_base64url_strict( $params{credential_id_b64},
+            "credential_id_b64" );
+        unless ( $reported eq $credential_id_bin ) {
+            croak(  "Credential $params{credential_id_b64} is not the one "
+                  . "in the authenticator data" );
+        }
+    }
+
     return {
+        _transports($credential),
         credential_id      => encode_base64url($credential_id_bin),
         credential_pubkey  => encode_base64url($credential_pubkey_cose),
         signature_count    => $signature_count,
@@ -608,6 +622,7 @@ sub _check_credential_public_key {
 
 sub validate_assertion {
     my ( $self, %params ) = @_;
+    ( undef, %params ) = _credential_params( "authentication", %params );
     my (
         $challenge_b64,        $credential_pubkey_b64,
         $stored_sign_count,    $requested_uv,
@@ -752,16 +767,20 @@ sub validate_assertion {
     # is nonzero, then run the following sub-step:
     $stored_sign_count //= 0;
     my $signature_count = $authenticator_data->{signCount};
+    my $sign_count_regressed;
     if ( $signature_count > 0 or $stored_sign_count > 0 ) {
         if ( $signature_count <= $stored_sign_count ) {
             croak(  "Device signature count $signature_count is not higher "
-                  . "than stored signature count $stored_sign_count" );
+                  . "than stored signature count $stored_sign_count" )
+              unless $params{allow_sign_count_regression};
+            $sign_count_regressed = 1;
         }
     }
 
     return {
         success         => 1,
         signature_count => $signature_count,
+        ( $sign_count_regressed ? ( sign_count_regressed => 1 ) : () ),
         _flags_result( $authenticator_data->{flags} ),
         %extensions,
         (
@@ -770,6 +789,78 @@ sub validate_assertion {
             : ()
         ),
     };
+}
+
+# The members of a credential, as PublicKeyCredential.toJSON() writes it,
+# that stand for each argument
+my %CREDENTIAL_MEMBERS = (
+    registration => {
+        credential_id_b64      => ["rawId"],
+        client_data_json_b64   => [qw(response clientDataJSON)],
+        attestation_object_b64 => [qw(response attestationObject)],
+    },
+    authentication => {
+        credential_id_b64      => ["rawId"],
+        client_data_json_b64   => [qw(response clientDataJSON)],
+        authenticator_data_b64 => [qw(response authenticatorData)],
+        signature_b64          => [qw(response signature)],
+        user_handle_b64        => [qw(response userHandle)],
+    },
+);
+
+# Replaces credential_json with the arguments it stands for. Returns the
+# decoded credential too.
+sub _credential_params {
+    my ( $ceremony, %params ) = @_;
+
+    my $json = delete $params{credential_json};
+    return ( undef, %params ) unless defined $json;
+
+    my $credential =
+      ref $json ? $json : eval { JSON->new->utf8->decode($json) };
+    croak("credential_json is not valid JSON: $@") unless defined $credential;
+    _require_map( $credential,             "credential_json" );
+    _require_map( $credential->{response}, "credential_json response" );
+    unless ( ( $credential->{type} // "" ) eq "public-key" ) {
+        croak("credential_json type is not public-key");
+    }
+    unless (_is_string( $credential->{id} )
+        and _is_string( $credential->{rawId} )
+        and $credential->{id} eq $credential->{rawId} )
+    {
+        croak("credential_json id and rawId differ");
+    }
+
+    my $members = $CREDENTIAL_MEMBERS{$ceremony};
+    for my $name ( sort keys %$members ) {
+        my $value = $credential;
+        $value = ref $value eq "HASH" ? $value->{$_} : undef
+          for @{ $members->{$name} };
+        next unless defined $value;
+        croak(  "credential_json "
+              . join( ".", @{ $members->{$name} } )
+              . " is not a string" )
+          unless _is_string($value);
+        croak("$name is given both as an argument and in credential_json")
+          if defined $params{$name};
+        $params{$name} = $value;
+    }
+    if ( defined $credential->{clientExtensionResults} ) {
+        croak(  "extension_results is given both as an argument and in "
+              . "credential_json" )
+          if defined $params{extension_results};
+        $params{extension_results} = $credential->{clientExtensionResults};
+    }
+    return ( $credential, %params );
+}
+
+# The transports the browser reports for a new credential, which the
+# Relying Party stores to offer in allowCredentials
+sub _transports {
+    my ($credential) = @_;
+    my $transports = $credential && $credential->{response}->{transports};
+    return () unless ref($transports) eq "ARRAY";
+    return ( transports => [ grep { _is_string($_) } @$transports ] );
 }
 
 # Steps 5 and 6 of authentication. Returns the user handle, if the client

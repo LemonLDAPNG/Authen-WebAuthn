@@ -22,10 +22,9 @@ To register a new device:
 
     my $registration_result = eval {
         $webauthn_rp->validate_registration(
-            challenge_b64          => ... ,
-            requested_uv           => ... ,
-            client_data_json_b64   => ... ,
-            attestation_object_b64 => ... ,
+            challenge_b64   => ... ,
+            requested_uv    => ... ,
+            credential_json => ... ,    # PublicKeyCredential.toJSON()
         )
     };
     if ($@) {
@@ -246,6 +245,18 @@ It takes the following named arguments
 
 The base64url-encoded challenge that was submitted to the authenticator
 
+=item credential_json
+
+The credential as the browser serializes it with C<PublicKeyCredential.toJSON()>
+(or C<JSON.stringify()>), as a JSON string or already decoded. It stands for
+C<client_data_json_b64>, C<attestation_object_b64>, C<credential_id_b64> and
+C<extension_results>, which are then not given separately.
+
+=item credential_id_b64
+
+The base64url-encoded credential ID the browser reported (C<rawId>). If given,
+it must be the credential the authenticator data describes.
+
 =item requested_uv
 
 Whether or not the Relying Party required user verification for this operation.
@@ -385,6 +396,12 @@ The base64url-encoded public key for this authenticator, in COSE format
 
 The initial signature count of this authenticator
 
+=item transports
+
+When C<credential_json> was given, the transports the browser reported for the
+credential (C<usb>, C<hybrid>, C<internal>...), to store and pass back in
+C<allowCredentials>.
+
 =item user_verified
 
 1 if the authenticator verified the user (PIN, biometrics...) during this
@@ -464,6 +481,14 @@ It takes the following named arguments
 
 The base64url-encoded challenge that was submitted to the authenticator
 
+=item credential_json
+
+The credential as the browser serializes it with C<PublicKeyCredential.toJSON()>
+(or C<JSON.stringify()>), as a JSON string or already decoded. It stands for
+C<client_data_json_b64>, C<authenticator_data_b64>, C<signature_b64>,
+C<credential_id_b64>, C<user_handle_b64> and C<extension_results>, which are
+then not given separately.
+
 =item credential_pubkey_b64
 
 The base64url-encoded credential public key corresponding to the received Credential ID
@@ -472,6 +497,14 @@ The base64url-encoded credential public key corresponding to the received Creden
 
 The current signature count in the Relying Party's database. Set it to 0 to
 disable verification of the signature count
+
+=item allow_sign_count_regression
+
+A signature count that is not higher than the stored one may mean the
+authenticator was cloned, and validation fails. What to do about it is the
+Relying Party's policy: set this to 1 to have validation succeed anyway and
+return C<sign_count_regressed>, to flag the credential or ask for another
+factor instead.
 
 =item requested_uv
 
@@ -543,6 +576,11 @@ a hashref with the following subkeys:
 =item signature_count
 
 The new signature count, to be updated in the Relying Party's database
+
+=item sign_count_regressed
+
+1 if the signature count was not higher than the stored one, which only
+happens with C<allow_sign_count_regression>
 
 =item user_verified
 

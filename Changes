@@ -55,6 +55,13 @@ Unreleased
   - allowed_algs option to validate_registration
   - mediation option to validate_registration: with conditional
     (automatic passkey upgrade), User Present is not required
+  - credential_json: validate_registration and validate_assertion take
+    the credential as the browser serializes it (PublicKeyCredential
+    .toJSON()) in place of its parts; registration then returns the
+    transports the browser reported
+  - allow_sign_count_regression: a signature count that did not increase
+    is reported as sign_count_regressed instead of failing, for Relying
+    Parties whose policy is to flag the credential
   - appid option to validate_assertion, for U2F AppIDs other than the
     origin
   - validate_registration and validate_assertion return user_verified,
