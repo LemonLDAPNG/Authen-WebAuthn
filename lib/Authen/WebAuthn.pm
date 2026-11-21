@@ -339,7 +339,7 @@ sub validate_registration {
     # anchors (i.e. attestation root certificates) for that attestation type
     # and attestation statement format fmt, from a trusted source or from
     # policy.
-    if ( defined($trust_anchors) and ref($trust_anchors) eq "SUB" ) {
+    if ( ref($trust_anchors) eq "CODE" ) {
 
         my $aaguid = $authenticator_data->{attestedCredentialData}->{aaguid};
 

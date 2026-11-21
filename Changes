@@ -4,6 +4,7 @@ Unreleased
   - Decode client-supplied CBOR with CBOR::XS->new_safe, so that a tagged
     value cannot instantiate a Perl object
   - Fix PS256 signature verification (32 byte salt)
+  - Fix trust_anchors given as a code reference, which was always refused
   - Support ES384, ES512 and EdDSA (Ed25519) credential keys
   - Add allowed_algs option to validate_registration
   - origin can be an arrayref of accepted origins (Frank Carnovale)
