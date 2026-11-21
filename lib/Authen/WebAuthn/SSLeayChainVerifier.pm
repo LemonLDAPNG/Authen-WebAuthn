@@ -31,10 +31,10 @@ sub getX509 {
                 return $x509;
             }
             else {
-                die "Could not parse certificate: "
-                  . Net::SSLeay::ERR_error_string(
+                my $error = Net::SSLeay::ERR_error_string(
                     Net::SSLeay::ERR_get_error() );
                 Net::SSLeay::ERR_clear_error();
+                die "Could not parse certificate: $error";
             }
         }
         else {
