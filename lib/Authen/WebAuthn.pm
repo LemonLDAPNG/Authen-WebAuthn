@@ -24,9 +24,12 @@ has origin => ( is => 'rw', required => 1 );
 has allow_cross_origin => ( is => 'rw', default => 0 );
 
 my $ATTESTATION_FUNCTIONS = {
-    none       => \&attest_none,
-    packed     => \&attest_packed,
-    "fido-u2f" => \&attest_u2f,
+    none          => \&attest_none,
+    packed        => \&attest_packed,
+    "fido-u2f"    => \&attest_u2f,
+    apple         => \&attest_apple,
+    "android-key" => \&attest_android_key,
+    tpm           => \&attest_tpm,
 };
 
 my $KEY_TYPES = {
@@ -122,6 +125,16 @@ my $COSE_ALG = {
 # EdDSA, ES256 and RS256, which WebAuthn Level 3 says a Relying Party that
 # wants to support a wide range of authenticators should offer
 my $DEFAULT_ALGS = [ -8, -7, -257 ];
+
+# ASN.1 universal types and classes, as _der_read returns them
+my $DER_CONSTRUCTED = 0x20;
+my $DER_CONTEXT     = 0xa0;    # context-specific, constructed (explicit)
+my %DER             = (
+    INTEGER      => [ 0x00,             2 ],
+    OCTET_STRING => [ 0x00,             4 ],
+    SEQUENCE     => [ $DER_CONSTRUCTED, 16 ],
+    SET          => [ $DER_CONSTRUCTED, 17 ],
+);
 
 # Values the WebAuthn enumerations allow, for the options that take one
 my %OPTION_VALUES = (
@@ -431,8 +444,11 @@ sub validate_registration {
     my $authenticator_data_raw = $attestation_object->{authDataRaw};
     my $attestation_result     = eval {
         $attestation_function->(
-            $attestation_statement,  $authenticator_data,
-            $authenticator_data_raw, $client_data_hash
+            $attestation_statement,
+            $authenticator_data,
+            $authenticator_data_raw,
+            $client_data_hash,
+            { android_key_require_tee => $params{android_key_require_tee} },
         );
     };
     croak( "Failed to validate attestation: " . $@ ) if ($@);
@@ -1548,22 +1564,7 @@ sub attest_packed_x5c {
     # If attestnCert contains an extension with OID 1.3.6.1.4.1.45724.1.1.4
     # (id-fido-gen-ce-aaguid) verify that the value of this extension matches
     # the aaguid in authenticatorData.
-    my $aaguid_ext = $x5c->extensions_by_oid->{'1.3.6.1.4.1.45724.1.1.4'};
-    if ($aaguid_ext) {
-        my $ad_aaguid = $authenticator_data->{attestedCredentialData}->{aaguid};
-        my $cert_aaguid = $aaguid_ext->value;
-        croak "Invalid id-fido-gen-ce-aaguid extension format"
-          unless $cert_aaguid =~ /^#0410.{32}$/;
-
-        # Reformat aaguids so they can be compared
-        ($cert_aaguid) = $cert_aaguid =~ /^#0410(.{32})$/;
-        $ad_aaguid =~ s/-//g;
-        $ad_aaguid = uc($ad_aaguid);
-
-        croak "AAGUID from certificate ($cert_aaguid)"
-          . " does not match AAGUID from authenticator data ($ad_aaguid)"
-          if $ad_aaguid ne $cert_aaguid;
-    }
+    _check_aaguid_extension( $x5c, $authenticator_data );
 
     # Optionally, inspect x5c and consult externally provided knowledge to
     # determine whether attStmt conveys a Basic or AttCA attestation.
@@ -1583,6 +1584,308 @@ sub attest_packed_x5c {
     else {
         croak "Invalid attestation signature";
     }
+}
+
+# If the attestation certificate has an id-fido-gen-ce-aaguid extension,
+# it must match the AAGUID in the authenticator data
+sub _check_aaguid_extension {
+    my ( $x509, $authenticator_data ) = @_;
+
+    my $aaguid_ext = $x509->extensions_by_oid->{'1.3.6.1.4.1.45724.1.1.4'};
+    return unless $aaguid_ext;
+
+    my $ad_aaguid   = $authenticator_data->{attestedCredentialData}->{aaguid};
+    my $cert_aaguid = $aaguid_ext->value;
+    croak "Invalid id-fido-gen-ce-aaguid extension format"
+      unless $cert_aaguid =~ /^#0410.{32}$/;
+
+    # Reformat aaguids so they can be compared
+    ($cert_aaguid) = $cert_aaguid =~ /^#0410(.{32})$/;
+    $ad_aaguid =~ s/-//g;
+    $ad_aaguid = uc($ad_aaguid);
+
+    croak "AAGUID from certificate ($cert_aaguid)"
+      . " does not match AAGUID from authenticator data ($ad_aaguid)"
+      if $ad_aaguid ne $cert_aaguid;
+    return;
+}
+
+# TPM 2.0 constants (TPM 2.0 Library, Part 2)
+my $TPM_GENERATED_VALUE   = 0xff544347;
+my $TPM_ST_ATTEST_CERTIFY = 0x8017;
+my $TPM_ALG_RSA           = 0x0001;
+my $TPM_ALG_ECC           = 0x0023;
+my $TPM_ALG_NULL          = 0x0010;
+my %TPM_HASH              = (
+    0x0004 => \&Digest::SHA::sha1,
+    0x000b => \&Digest::SHA::sha256,
+    0x000c => \&Digest::SHA::sha384,
+    0x000d => \&Digest::SHA::sha512,
+);
+
+# TPM_ECC_CURVE to COSE curve
+my %TPM_ECC_CURVE = ( 0x0003 => 1, 0x0004 => 2, 0x0005 => 3 );
+
+my %HASH_FUNCTION = (
+    SHA1   => \&Digest::SHA::sha1,
+    SHA256 => \&Digest::SHA::sha256,
+    SHA384 => \&Digest::SHA::sha384,
+    SHA512 => \&Digest::SHA::sha512,
+);
+
+# Reads TPM structures: big-endian integers and size-prefixed buffers
+sub _tpm_reader {
+    my ( $bytes, $name ) = @_;
+
+    my $offset = 0;
+    my $take   = sub {
+        my ($length) = @_;
+        croak "$name is truncated" if $offset + $length > length $bytes;
+        my $value = substr( $bytes, $offset, $length );
+        $offset += $length;
+        return $value;
+    };
+    return {
+        u16   => sub { unpack( "n", $take->(2) ) },
+        u32   => sub { unpack( "N", $take->(4) ) },
+        skip  => sub { $take->(shift); return },
+        sized => sub { $take->( unpack( "n", $take->(2) ) ) },
+        done  => sub {
+            croak "$name has trailing bytes" if $offset != length $bytes;
+        },
+    };
+}
+
+# The key a TPMT_PUBLIC describes, as COSE fields, and its nameAlg
+sub _tpm_public_area {
+    my ($pub_area) = @_;
+
+    my $read     = _tpm_reader( $pub_area, "pubArea" );
+    my $type     = $read->{u16}->();
+    my $name_alg = $read->{u16}->();
+    $read->{u32}->();      # objectAttributes
+    $read->{sized}->();    # authPolicy
+
+    # TPMT_SYM_DEF_OBJECT, then the scheme
+    my $symmetric = $read->{u16}->();
+    $read->{skip}->(4) unless $symmetric == $TPM_ALG_NULL;
+    my $scheme = $read->{u16}->();
+    $read->{skip}->(2) unless $scheme == $TPM_ALG_NULL;
+
+    my %key;
+    if ( $type == $TPM_ALG_RSA ) {
+        $read->{u16}->();    # keyBits
+        my $exponent = $read->{u32}->() || 65537;
+        %key = (
+            kty => 3,
+            n   => $read->{sized}->(),
+            e   => $exponent,
+        );
+    }
+    elsif ( $type == $TPM_ALG_ECC ) {
+        my $curve = $read->{u16}->();
+        my $kdf   = $read->{u16}->();
+        $read->{skip}->(2) unless $kdf == $TPM_ALG_NULL;
+        %key = (
+            kty   => 2,
+            curve => $TPM_ECC_CURVE{$curve}
+              // croak("Unsupported TPM curve $curve"),
+            x => $read->{sized}->(),
+            y => $read->{sized}->(),
+        );
+    }
+    else {
+        croak "Unsupported TPM key type $type";
+    }
+    $read->{done}->();
+    return ( \%key, $name_alg );
+}
+
+# Whether the key in pubArea is the credential public key
+sub _tpm_same_key {
+    my ( $key, $cose_raw ) = @_;
+
+    my $cose = _decode_cbor($cose_raw);
+    return 0 unless ( $cose->{1} // "" ) eq $key->{kty};
+    if ( $key->{kty} == 3 ) {
+        ( my $e = $cose->{-2} // "" ) =~ s/^\0+//;
+        my $exponent = 0;
+        $exponent = $exponent * 256 + $_ for unpack( "C*", $e );
+        return ( ( $cose->{-1} // "" ) eq $key->{n}
+              and $exponent == $key->{e} );
+    }
+    return (  ( $cose->{-1} // "" ) eq $key->{curve}
+          and ( $cose->{-2} // "" ) eq $key->{x}
+          and ( $cose->{-3} // "" ) eq $key->{y} );
+}
+
+# https://www.w3.org/TR/webauthn-3/#sctn-tpm-cert-requirements
+sub _tpm_check_cert_requirements {
+    my ($x509) = @_;
+
+    croak "Invalid certificate version" unless $x509->version eq "02";
+    croak "Subject is not empty" if @{ $x509->subject_name->entries };
+
+    # Subject Alternative Name: a directoryName with the TPM manufacturer,
+    # model and version (TCG EK Credential Profile, section 3.2.9)
+    my $san = _certificate_extension( $x509, "2.5.29.17" );
+    croak "Missing Subject Alternative Name" unless defined $san;
+    my %tpm_attributes;
+    my ( $class, $number, $names ) = _der_read($san);
+    for my $name ( _der_read_all($names) ) {
+        next unless $name->[0] == $DER_CONTEXT and $name->[1] == 4;
+        my ( undef, undef, $rdns ) = _der_read( $name->[2] );
+        for my $rdn ( _der_read_all($rdns) ) {
+            for my $attribute ( _der_read_all( $rdn->[2] ) ) {
+                my ($type) = _der_read_all( $attribute->[2] );
+                $tpm_attributes{ unpack( "H*", $type->[2] ) } = 1;
+            }
+        }
+    }
+    for my $oid (qw(6781050201 6781050202 6781050203)) {
+        croak "Subject Alternative Name does not name the TPM"
+          unless $tpm_attributes{$oid};
+    }
+
+    # Extended Key Usage: tcg-kp-AIKCertificate (2.23.133.8.3)
+    my $eku = _certificate_extension( $x509, "2.5.29.37" );
+    croak "Missing Extended Key Usage" unless defined $eku;
+    my ( undef, undef, $usages ) = _der_read($eku);
+    unless ( grep { unpack( "H*", $_->[2] ) eq "6781050803" }
+        _der_read_all($usages) )
+    {
+        croak "Extended Key Usage is not tcg-kp-AIKCertificate";
+    }
+
+    my $basic_constraints = $x509->extensions_by_oid->{"2.5.29.19"};
+    croak "Missing Basic Constraints extension" unless $basic_constraints;
+    croak "Basic Constraints CA is true" if $basic_constraints->basicC("ca");
+    return;
+}
+
+# https://www.w3.org/TR/webauthn-3/#sctn-tpm-attestation
+sub attest_tpm {
+    my (
+        $attestation_statement,  $authenticator_data,
+        $authenticator_data_raw, $client_data_hash
+    ) = @_;
+
+    # Verify that attStmt is valid CBOR conforming to the syntax defined
+    # above and perform CBOR decoding on it to extract the contained fields.
+    my ( $ver, $alg_num, $x5c, $sig, $cert_info, $pub_area ) =
+      @{$attestation_statement}{qw(ver alg x5c sig certInfo pubArea)};
+    croak "Unsupported TPM version" unless ( $ver // "" ) eq "2.0";
+    croak "Unsupported algorithm " . ( $alg_num // "(none)" )
+      unless defined $alg_num
+      and !ref $alg_num
+      and $COSE_ALG->{$alg_num};
+    _require_bytes( $sig,       "Attestation statement signature" );
+    _require_bytes( $cert_info, "certInfo" );
+    _require_bytes( $pub_area,  "pubArea" );
+
+    # Verify that the public key specified by the parameters and unique
+    # fields of pubArea is identical to the credentialPublicKey in the
+    # attestedCredentialData in authenticatorData.
+    my ( $key, $name_alg ) = _tpm_public_area($pub_area);
+    unless (
+        _tpm_same_key(
+            $key,
+            $authenticator_data->{attestedCredentialData}->{credentialPublicKey}
+        )
+      )
+    {
+        croak "Credential public key does not match pubArea";
+    }
+
+    # Concatenate authenticatorData and clientDataHash to form
+    # attToBeSigned.
+    my $att_to_be_signed = $authenticator_data_raw . $client_data_hash;
+
+    # Verify integrity of certInfo
+    # - Verify that x5c is present.
+    unless ( ref($x5c) eq "ARRAY"
+        and @$x5c
+        and !grep { !defined $_ or ref $_ } @$x5c )
+    {
+        croak "Invalid certificate field in attestation statement";
+    }
+    my $aik_cert = eval {
+        Crypt::OpenSSL::X509->new_from_string( $x5c->[0],
+            Crypt::OpenSSL::X509::FORMAT_ASN1 );
+    } or croak "Cannot read attestation certificate: $@";
+
+    # - Verify that aikCert meets the requirements in § 8.3.1 TPM
+    #   Attestation Statement Certificate Requirements.
+    eval { _tpm_check_cert_requirements($aik_cert) };
+    croak "Attestation certificate does not satisfy requirements: $@" if $@;
+
+    # - If aikCert contains an extension with OID 1.3.6.1.4.1.45724.1.1.4
+    #   (id-fido-gen-ce-aaguid) verify that the value of this extension
+    #   matches the aaguid in authenticatorData.
+    _check_aaguid_extension( $aik_cert, $authenticator_data );
+
+    # - Verify the sig is a valid signature over certInfo using the
+    #   attestation public key in aikCert with the algorithm specified in
+    #   alg.
+    my $verifier = eval {
+        getPEMPubKeyVerifier(
+            _certificate_public_key( $aik_cert, $x5c->[0], $alg_num ),
+            $alg_num );
+    };
+    croak "Cannot get signature validator for attestation: $@" if $@;
+    croak "Invalid attestation signature"
+      unless $verifier->( $sig, $cert_info );
+
+    # Validate that certInfo is valid:
+    _tpm_check_cert_info( $cert_info, $alg_num, $att_to_be_signed, $pub_area,
+        $name_alg );
+
+    # - If successful, return implementation-specific values representing
+    #   attestation type AttCA and attestation trust path x5c.
+    return {
+        success    => 1,
+        type       => "AttCA",
+        trust_path => $x5c,
+    };
+}
+
+sub _tpm_check_cert_info {
+    my ( $cert_info, $alg_num, $att_to_be_signed, $pub_area, $name_alg ) = @_;
+
+    my $read = _tpm_reader( $cert_info, "certInfo" );
+
+    # - Verify that magic is set to TPM_GENERATED_VALUE.
+    croak "certInfo magic is not TPM_GENERATED_VALUE"
+      unless $read->{u32}->() == $TPM_GENERATED_VALUE;
+
+    # - Verify that type is set to TPM_ST_ATTEST_CERTIFY.
+    croak "certInfo type is not TPM_ST_ATTEST_CERTIFY"
+      unless $read->{u16}->() == $TPM_ST_ATTEST_CERTIFY;
+
+    # - Verify that extraData is set to the hash of attToBeSigned using the
+    #   hash algorithm employed in "alg".
+    $read->{sized}->();    # qualifiedSigner
+    my $extra_data = $read->{sized}->();
+    my $hash =
+      $HASH_FUNCTION{ $COSE_ALG->{$alg_num}->{signature_options}->[0] // "" }
+      or croak "Algorithm $alg_num has no hash for extraData";
+    croak "certInfo extraData does not match"
+      unless $extra_data eq $hash->($att_to_be_signed);
+
+    # - Verify that attested contains a TPMS_CERTIFY_INFO structure as
+    #   specified in [TPMv2-Part2] section 10.12.3, whose name field contains
+    #   a valid Name for pubArea, as computed using the procedure specified
+    #   in [TPMv2-Part1] section 16 using the nameAlg in the pubArea.
+    $read->{skip}->(17);    # clockInfo
+    $read->{skip}->(8);     # firmwareVersion
+    my $name = $read->{sized}->();
+    $read->{sized}->();     # qualifiedName
+    $read->{done}->();
+    my $name_hash = $TPM_HASH{$name_alg}
+      or croak "Unsupported pubArea nameAlg $name_alg";
+    croak "certInfo name does not match pubArea"
+      unless $name eq pack( "n", $name_alg ) . $name_hash->($pub_area);
+    return;
 }
 
 # Implements 8.2.1. Packed Attestation Statement Certificate Requirements
@@ -1653,6 +1956,370 @@ sub attest_packed_self {
     else {
         croak "Invalid attestation signature";
     }
+}
+
+# Reads one DER (X.690) value: returns its class and constructed bits (the
+# top three bits of the first byte), its tag number, its contents, and the
+# rest of the input. Enough of DER to read the attestation certificate
+# extensions: definite lengths only.
+sub _der_read {
+    my ($der) = @_;
+
+    croak("DER value is truncated") if length($der) < 2;
+    my $identifier = unpack( "C", $der );
+    my $offset     = 1;
+    my $number     = $identifier & 0x1f;
+    if ( $number == 0x1f ) {
+        $number = 0;
+        while (1) {
+            croak("DER value is truncated") if length($der) <= $offset;
+            my $byte = unpack( "C", substr( $der, $offset++, 1 ) );
+            $number = ( $number << 7 ) | ( $byte & 0x7f );
+            croak("DER tag is too long") if $number > 0xffffff;
+            last unless $byte & 0x80;
+        }
+    }
+    croak("DER value is truncated") if length($der) <= $offset;
+    my $length = unpack( "C", substr( $der, $offset++, 1 ) );
+    if ( $length & 0x80 ) {
+        my $bytes = $length & 0x7f;
+        croak("DER length is not supported")
+          if $bytes < 1
+          or $bytes > 4
+          or length($der) < $offset + $bytes;
+        $length = unpack( "N",
+            ( "\0" x ( 4 - $bytes ) ) . substr( $der, $offset, $bytes ) );
+        $offset += $bytes;
+    }
+    croak("DER value is truncated") if length($der) < $offset + $length;
+    return (
+        $identifier & 0xe0,
+        $number,
+        substr( $der, $offset, $length ),
+        substr( $der, $offset + $length )
+    );
+}
+
+sub _der_is {
+    my ( $class, $number, $type ) = @_;
+    return ( $class == $DER{$type}->[0] and $number == $DER{$type}->[1] );
+}
+
+# Reads all the DER values in a constructed value's contents
+sub _der_read_all {
+    my ($der) = @_;
+
+    my @values;
+    while ( length $der ) {
+        my ( $class, $number, $contents );
+        ( $class, $number, $contents, $der ) = _der_read($der);
+        push @values, [ $class, $number, $contents ];
+    }
+    return @values;
+}
+
+# A non-negative DER INTEGER or ENUMERATED, as a number
+sub _der_unsigned {
+    my ($contents) = @_;
+
+    croak("DER integer is empty") unless length $contents;
+    croak("DER integer is negative or too large")
+      if unpack( "C", $contents ) & 0x80
+      or length($contents) > 5;
+    my $value = 0;
+    $value = $value * 256 + $_ for unpack( "C*", $contents );
+    return $value;
+}
+
+# The value of a certificate extension, as DER, or undef if absent
+sub _certificate_extension {
+    my ( $x509, $oid ) = @_;
+
+    my $extension = $x509->extensions_by_oid->{$oid} or return;
+    my ($hex) = $extension->value =~ /^#([0-9A-Fa-f]*)$/
+      or croak("Cannot read certificate extension $oid");
+    return pack( "H*", $hex );
+}
+
+# Whether a COSE credential public key and the public key of a DER
+# certificate are the same key
+sub _same_public_key {
+    my ( $cose_raw, $certificate_der ) = @_;
+
+    my $cose = _decode_cbor($cose_raw);
+    my $alg  = $COSE_ALG->{ $cose->{3} // "" }
+      or croak( "Unsupported algorithm " . ( $cose->{3} // "(none)" ) );
+    my $credential  = $KEY_TYPES->{ $alg->{key_type} }->{parse_cose}->($cose);
+    my $certificate = eval { ref($credential)->new( \$certificate_der ) }
+      or return 0;
+
+    return $credential->export_key_der("public") eq
+      $certificate->export_key_der("public");
+}
+
+# The nonce in Apple's extension: a SEQUENCE holding an [1] holding an OCTET
+# STRING
+sub _apple_nonce {
+    my ($extension) = @_;
+
+    my ( $sequence_class, $sequence_number, $sequence ) = _der_read($extension);
+    my ( $explicit_class, $explicit_number, $explicit ) = _der_read($sequence);
+    my ( $octets_class,   $octets_number,   $octets )   = _der_read($explicit);
+    unless ( _der_is( $sequence_class, $sequence_number, "SEQUENCE" )
+        and $explicit_class == $DER_CONTEXT
+        and $explicit_number == 1
+        and _der_is( $octets_class, $octets_number, "OCTET_STRING" ) )
+    {
+        croak "Invalid nonce extension in attestation certificate";
+    }
+    return $octets;
+}
+
+# https://www.w3.org/TR/webauthn-3/#sctn-apple-anonymous-attestation
+sub attest_apple {
+    my (
+        $attestation_statement,  $authenticator_data,
+        $authenticator_data_raw, $client_data_hash
+    ) = @_;
+
+    # 1. Verify that attStmt is valid CBOR conforming to the syntax defined
+    # above and perform CBOR decoding on it to extract the contained fields.
+    my $x5c = $attestation_statement->{x5c};
+    unless ( ref($x5c) eq "ARRAY"
+        and @$x5c
+        and !grep { !defined $_ or ref $_ } @$x5c )
+    {
+        croak "Invalid certificate field in attestation statement";
+    }
+    my $cred_cert = eval {
+        Crypt::OpenSSL::X509->new_from_string( $x5c->[0],
+            Crypt::OpenSSL::X509::FORMAT_ASN1 );
+    } or croak "Cannot read attestation certificate: $@";
+
+    # 2. Concatenate authenticatorData and clientDataHash to form
+    # nonceToHash.
+    # 3. Perform SHA-256 hash of nonceToHash to produce nonce.
+    my $nonce = sha256( $authenticator_data_raw . $client_data_hash );
+
+    # 4. Verify that nonce equals the value of the extension with OID
+    # 1.2.840.113635.100.8.2 in credCert.
+    my $extension =
+      _certificate_extension( $cred_cert, "1.2.840.113635.100.8.2" );
+    croak "Missing nonce extension in attestation certificate"
+      unless defined $extension;
+    croak "Attestation nonce does not match"
+      unless _apple_nonce($extension) eq $nonce;
+
+    # 5. Verify that the credential public key equals the Subject Public Key
+    # of credCert.
+    unless (
+        _same_public_key(
+            $authenticator_data->{attestedCredentialData}
+              ->{credentialPublicKey},
+            $x5c->[0]
+        )
+      )
+    {
+        croak "Credential public key does not match attestation certificate";
+    }
+
+    # 6. If successful, return implementation-specific values representing
+    # attestation type Anonymization CA and attestation trust path x5c.
+    return {
+        success    => 1,
+        type       => "AnonCA",
+        trust_path => $x5c,
+    };
+}
+
+# The public key of an attestation certificate, as PEM. Crypt::OpenSSL::X509
+# cannot read Ed25519 keys.
+sub _certificate_public_key {
+    my ( $x509, $certificate_der, $alg_num ) = @_;
+
+    my $alg = $COSE_ALG->{$alg_num};
+    return Crypt::PK::Ed25519->new( \$certificate_der )
+      ->export_key_pem('public')
+      if $alg and $alg->{key_type} eq "OKP";
+    return $x509->pubkey();
+}
+
+# Android KeyMaster/KeyMint values the verification procedure names
+my $KM_ORIGIN_GENERATED = 0;
+my $KM_PURPOSE_SIGN     = 2;
+
+# https://www.w3.org/TR/webauthn-3/#sctn-android-key-attestation
+sub attest_android_key {
+    my (
+        $attestation_statement, $authenticator_data, $authenticator_data_raw,
+        $client_data_hash,      $options
+    ) = @_;
+
+    # Verify that attStmt is valid CBOR conforming to the syntax defined
+    # above and perform CBOR decoding on it to extract the contained fields.
+    my $alg_num = $attestation_statement->{alg};
+    my $sig     = $attestation_statement->{sig};
+    my $x5c     = $attestation_statement->{x5c};
+    croak "Missing algorithm field in attestation statement"
+      unless defined $alg_num and !ref $alg_num;
+    _require_bytes( $sig, "Attestation statement signature" );
+    unless ( ref($x5c) eq "ARRAY"
+        and @$x5c
+        and !grep { !defined $_ or ref $_ } @$x5c )
+    {
+        croak "Invalid certificate field in attestation statement";
+    }
+    my $cred_cert = eval {
+        Crypt::OpenSSL::X509->new_from_string( $x5c->[0],
+            Crypt::OpenSSL::X509::FORMAT_ASN1 );
+    } or croak "Cannot read attestation certificate: $@";
+
+    # Verify that sig is a valid signature over the concatenation of
+    # authenticatorData and clientDataHash using the public key in the first
+    # certificate in x5c with the algorithm specified in alg.
+    my $verifier = eval {
+        getPEMPubKeyVerifier(
+            _certificate_public_key( $cred_cert, $x5c->[0], $alg_num ),
+            $alg_num );
+    };
+    croak "Cannot get signature validator for attestation: $@" if $@;
+    croak "Invalid attestation signature"
+      unless $verifier->( $sig, $authenticator_data_raw . $client_data_hash );
+
+    # Verify that the public key in the first certificate in x5c matches the
+    # credentialPublicKey in the attestedCredentialData in
+    # authenticatorData.
+    unless (
+        _same_public_key(
+            $authenticator_data->{attestedCredentialData}
+              ->{credentialPublicKey},
+            $x5c->[0]
+        )
+      )
+    {
+        croak "Credential public key does not match attestation certificate";
+    }
+
+    # Verify that the attestationChallenge field in the attestation
+    # certificate extension data is identical to clientDataHash.
+    my $extension =
+      _certificate_extension( $cred_cert, "1.3.6.1.4.1.11129.2.1.17" );
+    croak "Missing key description extension in attestation certificate"
+      unless defined $extension;
+    _check_android_key_description( _android_key_description($extension),
+        $client_data_hash, $options );
+
+    # If successful, return implementation-specific values representing
+    # attestation type Basic and attestation trust path x5c.
+    return {
+        success    => 1,
+        type       => "Basic",
+        trust_path => $x5c,
+    };
+}
+
+sub _check_android_key_description {
+    my ( $description, $client_data_hash, $options ) = @_;
+
+    croak "Attestation challenge does not match"
+      unless $description->{attestation_challenge} eq $client_data_hash;
+
+    # Verify the following using the appropriate authorization list from
+    # the attestation certificate extension data:
+    # - The AuthorizationList.allApplications field is not present on either
+    #   authorization list (softwareEnforced nor teeEnforced), since
+    #   PublicKeyCredential MUST be scoped to the RP ID.
+    if (   $description->{software_enforced}->{all_applications}
+        or $description->{tee_enforced}->{all_applications} )
+    {
+        croak "Attestation key is not scoped to the RP ID (allApplications)";
+    }
+
+    # - For the following, use only the teeEnforced authorization list if
+    #   the RP wants to accept only keys from a trusted execution
+    #   environment, otherwise use the union of teeEnforced and
+    #   softwareEnforced.
+    my @lists = ( $description->{tee_enforced} );
+    push @lists, $description->{software_enforced}
+      unless $options->{android_key_require_tee};
+
+    #   - The value in the AuthorizationList.origin field is equal to
+    #     KM_ORIGIN_GENERATED.
+    #   - The value in the AuthorizationList.purpose field is equal to
+    #     KM_PURPOSE_SIGN.
+    unless ( grep { ( $_->{origin} // -1 ) == $KM_ORIGIN_GENERATED } @lists ) {
+        croak "Attestation key was not generated by the authenticator";
+    }
+    unless (
+        grep {
+            grep { $_ == $KM_PURPOSE_SIGN }
+              @{ $_->{purpose} }
+        } @lists
+      )
+    {
+        croak "Attestation key is not for signing";
+    }
+    return;
+}
+
+# The parts of an Android key description (OID 1.3.6.1.4.1.11129.2.1.17)
+# the verification procedure uses
+# https://developer.android.com/privacy-and-security/security-key-attestation#certificate_schema
+sub _android_key_description {
+    my ($der) = @_;
+
+    my ( $class, $number, $contents ) = _der_read($der);
+    croak "Invalid key description in attestation certificate"
+      unless _der_is( $class, $number, "SEQUENCE" );
+    my @fields = _der_read_all($contents);
+
+    # attestationVersion, attestationSecurityLevel, keymasterVersion,
+    # keymasterSecurityLevel, attestationChallenge, uniqueId,
+    # softwareEnforced, teeEnforced
+    unless ( @fields >= 8
+        and _der_is( @{ $fields[4] }[ 0, 1 ], "OCTET_STRING" )
+        and _der_is( @{ $fields[6] }[ 0, 1 ], "SEQUENCE" )
+        and _der_is( @{ $fields[7] }[ 0, 1 ], "SEQUENCE" ) )
+    {
+        croak "Invalid key description in attestation certificate";
+    }
+    return {
+        attestation_challenge => $fields[4]->[2],
+        software_enforced     => _android_authorization_list( $fields[6]->[2] ),
+        tee_enforced          => _android_authorization_list( $fields[7]->[2] ),
+    };
+}
+
+# purpose [1], allApplications [600] and origin [702] of an
+# AuthorizationList; the other fields are not used
+sub _android_authorization_list {
+    my ($der) = @_;
+
+    my %list = ( purpose => [] );
+    for my $field ( _der_read_all($der) ) {
+        my ( $class, $number, $contents ) = @$field;
+        next unless $class == $DER_CONTEXT;
+        if ( $number == 1 ) {
+            my ( $set_class, $set_number, $set ) = _der_read($contents);
+            croak "Invalid purpose in key description"
+              unless _der_is( $set_class, $set_number, "SET" );
+            $list{purpose} = [
+                map  { _der_unsigned( $_->[2] ) }
+                grep { _der_is( @{$_}[ 0, 1 ], "INTEGER" ) } _der_read_all($set)
+            ];
+        }
+        elsif ( $number == 600 ) {
+            $list{all_applications} = 1;
+        }
+        elsif ( $number == 702 ) {
+            my ( $integer_class, $integer_number, $integer ) =
+              _der_read($contents);
+            croak "Invalid origin in key description"
+              unless _der_is( $integer_class, $integer_number, "INTEGER" );
+            $list{origin} = _der_unsigned($integer);
+        }
+    }
+    return \%list;
 }
 
 # https://www.w3.org/TR/webauthn-2/#sctn-fido-u2f-attestation

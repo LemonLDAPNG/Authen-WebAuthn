@@ -43,6 +43,9 @@ Unreleased
   - Sign-in without a username: validate_assertion checks the credential
     against the allowed credentials and the user handle against the
     credential's owner, and can require a user handle
+  - The apple, android-key and tpm attestation formats, checked against
+    the specification's test vectors; android_key_require_tee accepts
+    only keys the trusted execution environment enforces
   - Extension outputs are checked: the client's (appid, appidExclude,
     credProps, largeBlob, prf) and the authenticator's (credProtect,
     hmac-secret, minPinLength, credBlob), against their types and against

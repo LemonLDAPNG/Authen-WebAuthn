@@ -67,6 +67,9 @@ my %supported = (
     "packed-rs256"                  => "Basic",
     "packed-eddsa"                  => "Basic",
     "fido-u2f-es256"                => "Basic",
+    "apple-es256"                   => "AnonCA",
+    "android-key-es256"             => "Basic",
+    "tpm-es256"                     => "AttCA",
 );
 
 for my $name ( sort keys %supported ) {
@@ -140,30 +143,6 @@ subtest "topOrigin" => sub {
     );
 };
 
-# Attestation formats this module does not implement: refused, unless
-# unknown formats are allowed, when the credential is still usable
-for my $name (qw(tpm-es256 android-key-es256 apple-es256)) {
-    my $vector = $vectors->{"sctn-test-vectors-$name"};
-    subtest $name => sub {
-        ok( !register( $rp, $vector ), "Refused" );
-        like(
-            $@,
-            qr/Unsupported attestation format/,
-            "... as an unsupported format"
-        );
-
-        my $registration =
-          register( $rp, $vector, allow_unknown_attestation_format => 1 );
-        ok( $registration, "Registers when unknown formats are allowed" )
-          or return diag($@);
-        is( $registration->{attestation_result}->{type},
-            "None", "... as None" );
-        ok( authenticate( $rp, $vector, $registration ),
-            "... and authenticates" )
-          or diag($@);
-    };
-}
-
 subtest "packed-ed448" => sub {
     ok( !register( $rp, $vectors->{"sctn-test-vectors-packed-ed448"} ),
         "Refused" );
@@ -173,7 +152,7 @@ subtest "packed-ed448" => sub {
 
 is(
     scalar( grep { $vectors->{$_}->{registration} } keys %$vectors ),
-    keys(%supported) + 2 + 3 + 1,
+    keys(%supported) + 2 + 1,
     "Every test vector is tested"
 );
 

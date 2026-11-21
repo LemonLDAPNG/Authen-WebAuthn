@@ -6,10 +6,14 @@
 # 8.2.1). Keys are for tests only. Certificates are valid for 100 years.
 #
 # Run from anywhere: t/pki/generate
+#
+# With certificate names, only those are made again, with the existing
+# authorities: t/pki/generate tpm-aik tpm-ca
 
 set -euo pipefail
 cd "$(dirname "$0")"
-rm -f -- *.pem *.srl
+only=" $* "
+[ "$#" -eq 0 ] && rm -f -- *.pem *.srl
 
 days=36500
 serial=1
@@ -27,6 +31,7 @@ key() {
 # name, key type, subject, issuer, extensions (empty for a version 1 cert)
 cert() {
     local name=$1 type=$2 subj=$3 issuer=$4 ext=$5
+    [ "$only" != "  " ] && [[ "$only" != *" $name "* ]] && return
     key "$name" "$type"
     openssl req -new -key "$name-key.pem" -subj "$subj" -out "$name.csr"
     openssl x509 -req -in "$name.csr" -CA "$issuer.pem" \
@@ -39,11 +44,13 @@ leaf="basicConstraints=critical,CA:FALSE"
 ca="basicConstraints=critical,CA:TRUE
 keyUsage=critical,keyCertSign,cRLSign"
 
-key root p256
-openssl req -x509 -new -key root-key.pem -days $days \
-    -subj "/C=US/O=Authen-WebAuthn Tests/CN=Test Root" \
-    -addext "basicConstraints=critical,CA:TRUE" \
-    -addext "keyUsage=critical,keyCertSign,cRLSign" -out root.pem
+if [ "$#" -eq 0 ]; then
+    key root p256
+    openssl req -x509 -new -key root-key.pem -days $days \
+        -subj "/C=US/O=Authen-WebAuthn Tests/CN=Test Root" \
+        -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" -out root.pem
+fi
 cert intermediate p256 "/C=US/O=Authen-WebAuthn Tests/CN=Test Intermediate" \
     root "$ca"
 
@@ -65,5 +72,37 @@ cert bad-no-ou p256 "/C=US/O=Authen-WebAuthn Tests/CN=Bad no OU" root "$leaf"
 cert bad-ca    p256 "$subject/CN=Bad CA" root "basicConstraints=critical,CA:TRUE"
 cert bad-no-bc p256 "$subject/CN=Bad no Basic Constraints" root "subjectKeyIdentifier=hash"
 cert bad-v1    p256 "$subject/CN=Bad version 1" root ""
+
+# TPM attestation (AIK) certificates: an empty subject, the TPM named in the
+# Subject Alternative Name (TCG EK Credential Profile 3.2.9) and the
+# tcg-kp-AIKCertificate key usage. OpenSSL takes a leading "N." in a field
+# name as a prefix, so the OIDs below are written 1.2.23.133...
+tpm_san="subjectAltName=critical,dirName:tpm_dn
+[tpm_dn]
+1.2.23.133.2.1=id:00000000
+1.2.23.133.2.2=Test TPM
+1.2.23.133.2.3=id:00000000"
+tpm_eku="extendedKeyUsage=2.23.133.8.3"
+
+cert tpm-aik     p256 "/" root "$leaf
+$tpm_eku
+$tpm_san"
+cert tpm-no-san  p256 "/" root "$leaf
+$tpm_eku"
+cert tpm-san-other p256 "/" root "$leaf
+$tpm_eku
+subjectAltName=critical,dirName:other_dn
+[other_dn]
+CN=Not a TPM"
+cert tpm-no-eku  p256 "/" root "$leaf
+$tpm_san"
+cert tpm-eku-other p256 "/" root "$leaf
+extendedKeyUsage=serverAuth
+$tpm_san"
+cert tpm-ca      p256 "/" root "basicConstraints=critical,CA:TRUE
+$tpm_eku
+$tpm_san"
+cert tpm-no-bc   p256 "/" root "$tpm_eku
+$tpm_san"
 
 rm -f -- *.srl
