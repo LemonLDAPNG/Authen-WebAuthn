@@ -26,7 +26,6 @@ To register a new device:
             requested_uv           => ... ,
             client_data_json_b64   => ... ,
             attestation_object_b64 => ... ,
-            token_binding_id_b64   => ... ,
         )
     };
     if ($@) {
@@ -52,7 +51,6 @@ To authenticate a user:
             authenticator_data_b64 => ...,
             signature_b64          => ...,
             extension_results      => ...,
-            token_binding_id_b64   => ...,
             trust_anchors          => ...,
         )
     };
@@ -220,12 +218,6 @@ The base64url-encoded client data received from the authenticator
 
 The base64url-encoded attestation object received from the authenticator
 
-=item token_binding_id_b64
-
-The base64url-encoded Token Binding ID for the current connection. Usually this
-comes from a C<Sec-Provided-Token-Binding-ID> HTTP header. If you are not using
-Token Binding, you can omit this parameter.
-
 =item trust_anchors
 
 If the authenticator response contains an attestation, C<validate_registration> will
@@ -389,12 +381,6 @@ The base64url-encoded signature received from the authenticator
 =item extension_results
 
 A hashref containing extension results received from the authenticator
-
-=item token_binding_id_b64
-
-The base64url-encoded Token Binding ID for the current connection. Usually this
-comes from a C<Sec-Provided-Token-Binding-ID> HTTP header. If you are not using
-Token Binding, you can omit this parameter.
 
 =back
 

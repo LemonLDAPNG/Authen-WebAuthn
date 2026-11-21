@@ -251,18 +251,6 @@ test_authentication(
 $authenticator->sign_count(0);
 
 test_authentication(
-    { token_binding_id_b64 => "YWJjCg" },
-    {
-        response => {
-            clientDataJSON =>
-              { tokenBinding => { status => "present", id => "ZmFpbAo" } }
-        }
-    },
-    "Mismatching token binding ID fails",
-    qr,Token Binding ID.*does not match,
-);
-
-test_authentication(
     {},
     {
         response => {
@@ -270,19 +258,7 @@ test_authentication(
               { tokenBinding => { status => "present", id => "ZmFpbAo" } }
         }
     },
-    "Token binding used in Client Data JSON but not in TLS connection",
-qr,The Token Binding ID from the current connection.*does not match Token Binding ID in client data,
-);
-
-test_authentication(
-    { token_binding_id_b64 => "YWJjCg" },
-    {
-        response => {
-            clientDataJSON =>
-              { tokenBinding => { status => "present", id => "YWJjCg" } }
-        }
-    },
-    "Correct token binding ID works",
+    "Token Binding in client data is ignored",
 );
 
 test_authentication(

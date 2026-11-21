@@ -186,14 +186,14 @@ sub validate_registration {
     my (
         $challenge_b64,             $requested_uv,
         $client_data_json_b64,      $attestation_object_b64,
-        $token_binding_id_b64,      $trust_anchors,
+        $trust_anchors,
         $allowed_attestation_types, $allow_untrusted_attestation,
         $allow_unknown_attestation_format, $allowed_algs,
       )
       = @params{ qw(
           challenge_b64        requested_uv
           client_data_json_b64 attestation_object_b64
-          token_binding_id_b64 trust_anchors
+          trust_anchors
           allowed_attestation_types allow_untrusted_attestation
           allow_unknown_attestation_format allowed_algs
         )
@@ -230,14 +230,6 @@ sub validate_registration {
     }
 
     my $matched_origin = $self->_check_origin( $client_data->{origin} );
-
-    # 10. Verify that the value of C.tokenBinding.status matches the state of
-    # Token Binding for the TLS connection over which the assertion was
-    # obtained. If Token Binding was used on that TLS connection, also verify
-    # that C.tokenBinding.id matches the base64url encoding of the Token
-    # Binding ID for the connection.
-    $self->check_token_binding( $client_data->{tokenBinding},
-        $token_binding_id_b64 );
 
     # 11. Let hash be the result of computing a hash over
     # response.clientDataJSON using SHA-256.
@@ -408,14 +400,13 @@ sub validate_assertion {
         $stored_sign_count,    $requested_uv,
         $client_data_json_b64, $authenticator_data_b64,
         $signature_b64,        $extension_results,
-        $token_binding_id_b64,
       )
       = @params{
         qw(challenge_b64  credential_pubkey_b64
           stored_sign_count  requested_uv
           client_data_json_b64 authenticator_data_b64
           signature_b64 extension_results
-          token_binding_id_b64)
+)
       };
 
     # 7. Using credential.id (or credential.rawId, if base64url encoding is
@@ -465,14 +456,6 @@ sub validate_assertion {
     }
 
     my $matched_origin = $self->_check_origin( $client_data->{origin} );
-
-    # 14. Verify that the value of C.tokenBinding.status matches the state of
-    # Token Binding for the TLS connection over which the attestation was
-    # obtained. If Token Binding was used on that TLS connection, also verify
-    # that C.tokenBinding.id matches the base64url encoding of the Token
-    # Binding ID for the connection.
-    $self->check_token_binding( $client_data->{tokenBinding},
-        $token_binding_id_b64 );
 
     # 15. Verify that the rpIdHash in authData is the SHA-256 hash of the RP ID
     # expected by the Relying Party.
@@ -602,50 +585,6 @@ sub convert_raw_ecc_to_cose {
     my $key = Crypt::PK::ECC->new;
     $key->import_key_raw( decode_base64url($raw_ecc_b64), "secp256r1" );
     return encode_base64url( _ecc_obj_to_cose($key) );
-}
-
-# Check Token Binding in client data against Token Binding in incoming TLS
-# connection. This only works if the web server supports it.
-sub check_token_binding {
-    my ( $self, $client_data_token_binding, $connection_tbid_b64 ) = @_;
-    $connection_tbid_b64 //= "";
-
-    # Token binding is not used
-    if ( ref($client_data_token_binding) ne "HASH" ) {
-        return;
-    }
-
-    my $token_binding_status = $client_data_token_binding->{status};
-
-    if ( $token_binding_status eq "present" ) {
-        my $client_data_cbid_b64 = $client_data_token_binding->{id};
-
-        # Token binding is in use: the "id" field must be present and must
-        # match the connection's Token Binding ID
-        if ($client_data_cbid_b64) {
-            if ( $client_data_cbid_b64 eq $connection_tbid_b64 ) {
-
-                # All is well
-                return;
-            }
-            else {
-                croak "The Token Binding ID from the current connection "
-                  . "($connection_tbid_b64) "
-                  . "does not match Token Binding ID in client data "
-                  . "($client_data_cbid_b64)";
-            }
-
-        }
-        else {
-            croak "Missing tokenBinding.id in client data "
-              . "while tokenBinding.status == present";
-        }
-
-    }
-    else {
-        # Token binding "supported" but not used, or unknown/missing value
-        return;
-    }
 }
 
 sub check_attestation_type {
