@@ -148,6 +148,134 @@ subtest "Assertion options" => sub {
     is( $options->{userVerification}, "discouraged", "User verification" );
 };
 
+subtest "Options are checked" => sub {
+    my %required = (
+        rp_name   => "Example",
+        user_id   => "user-42",
+        user_name => "alice",
+    );
+    my $refused = sub {
+        my ( $method, $params, $message, $name ) = @_;
+        eval { $rp->$method(%$params) };
+        like( $@, $message, $name );
+    };
+    my $registration = "generate_registration_options";
+    my $assertion    = "generate_assertion_options";
+
+    $refused->(
+        $registration,
+        { %required, user_id => "x" x 65 },
+        qr/user_id is longer than 64 bytes/,
+        "A user handle over 64 bytes"
+    );
+    ok( $rp->$registration( %required, user_id => "x" x 64 ),
+        "A user handle of 64 bytes" );
+
+    $refused->(
+        $registration,
+        { %required, requested_uv => "always" },
+        qr/Invalid requested_uv: always/,
+        "An unknown requested_uv"
+    );
+    $refused->(
+        $assertion,
+        { requested_uv => "always" },
+        qr/Invalid requested_uv: always/,
+        "... also when authenticating"
+    );
+    $refused->(
+        $registration,
+        { %required, attestation => "full" },
+        qr/Invalid attestation: full/,
+        "An unknown attestation"
+    );
+    $refused->(
+        $registration,
+        { %required, resident_key => "yes" },
+        qr/Invalid resident_key: yes/,
+        "An unknown resident_key"
+    );
+    $refused->(
+        $registration,
+        { %required, authenticator_attachment => "usb" },
+        qr/Invalid authenticator_attachment: usb/,
+        "An unknown authenticator_attachment"
+    );
+    $refused->(
+        $assertion,
+        { hints => ["phone"] },
+        qr/Invalid hints: phone/,
+        "An unknown hint"
+    );
+    $refused->(
+        $assertion,
+        { hints => "hybrid" },
+        qr/hints must be an ARRAY reference/,
+        "Hints that are not a list"
+    );
+    $refused->(
+        $assertion,
+        { timeout => "soon" },
+        qr/Invalid timeout: soon/,
+        "A timeout that is not a number"
+    );
+    $refused->(
+        $registration,
+        { %required, extensions => ["credProps"] },
+        qr/extensions must be a HASH reference/,
+        "Extensions that are not a map"
+    );
+};
+
+subtest "Optional options" => sub {
+    my $options = $rp->generate_registration_options(
+        rp_name      => "Example",
+        user_id      => "user-42",
+        user_name    => "alice",
+        resident_key => "required",
+        hints        => [ "client-device", "hybrid" ],
+        extensions   => { credProps => JSON::true },
+    );
+    is_deeply(
+        $options->{authenticatorSelection},
+        {
+            userVerification   => "preferred",
+            residentKey        => "required",
+            requireResidentKey => JSON::true,
+        },
+        "requireResidentKey is set when a resident key is required"
+    );
+    is_deeply( $options->{hints}, [ "client-device", "hybrid" ], "Hints" );
+    is_deeply( $options->{extensions},
+        { credProps => JSON::true }, "Extensions" );
+    like( encode_json($options), qr/"requireResidentKey":true/,
+        "requireResidentKey is serialized as a boolean" );
+
+    $options = $rp->generate_registration_options(
+        rp_name      => "Example",
+        user_id      => "user-42",
+        user_name    => "alice",
+        resident_key => "preferred",
+    );
+    ok( !exists $options->{authenticatorSelection}->{requireResidentKey},
+        "... and only then" );
+    ok(
+        !exists $options->{hints} && !exists $options->{extensions},
+        "Hints and extensions are omitted unless given"
+    );
+
+    $options = $rp->generate_assertion_options(
+        hints      => ["security-key"],
+        extensions => { appid => "https://auth.example.com" },
+    );
+    is_deeply( $options->{hints}, ["security-key"], "Assertion hints" );
+    is_deeply(
+        $options->{extensions},
+        { appid => "https://auth.example.com" },
+        "Assertion extensions"
+    );
+};
+
 subtest "Generated options validate" => sub {
     my $options = decode_json(
         encode_json(

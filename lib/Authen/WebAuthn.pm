@@ -94,6 +94,18 @@ my $COSE_ALG = {
 # ES256 and RS256: what every platform authenticator and security key can do
 my $DEFAULT_ALGS = [ -7, -257 ];
 
+# Values the WebAuthn enumerations allow, for the options that take one
+my %OPTION_VALUES = (
+    requested_uv             => [qw(required preferred discouraged)],
+    attestation              => [qw(none indirect direct enterprise)],
+    resident_key             => [qw(required preferred discouraged)],
+    authenticator_attachment => [qw(platform cross-platform)],
+    hints                    => [qw(security-key client-device hybrid)],
+);
+
+# https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-id
+my $MAX_USER_ID_LENGTH = 64;
+
 sub generate_registration_options {
     my ( $self, %params ) = @_;
 
@@ -102,6 +114,10 @@ sub generate_registration_options {
             croak("Missing $required");
         }
     }
+    if ( length( $params{user_id} ) > $MAX_USER_ID_LENGTH ) {
+        croak("user_id is longer than $MAX_USER_ID_LENGTH bytes");
+    }
+    _check_option_values( \%params );
 
     my $algs = $params{allowed_algs};
     $algs = $DEFAULT_ALGS unless ref($algs) eq "ARRAY" and @$algs;
@@ -125,7 +141,15 @@ sub generate_registration_options {
         authenticatorSelection => {
             userVerification => $params{requested_uv} // "preferred",
             (
-                $params{resident_key} ? ( residentKey => $params{resident_key} )
+                $params{resident_key}
+                ? ( residentKey => $params{resident_key} )
+                : ()
+            ),
+
+            # For browsers that predate residentKey (WebAuthn Level 1)
+            (
+                  ( $params{resident_key} // "" ) eq "required"
+                ? ( requireResidentKey => JSON::true )
                 : ()
             ),
             (
@@ -136,13 +160,15 @@ sub generate_registration_options {
             ),
         },
     };
-    $options->{timeout} = $params{timeout} + 0 if $params{timeout};
+    _add_optional_options( $options, \%params );
 
     return $options;
 }
 
 sub generate_assertion_options {
     my ( $self, %params ) = @_;
+
+    _check_option_values( \%params );
 
     my $options = {
         rpId             => $self->rp_id,
@@ -151,9 +177,52 @@ sub generate_assertion_options {
         allowCredentials =>
           _credential_descriptors( $params{allow_credentials} ),
     };
-    $options->{timeout} = $params{timeout} + 0 if $params{timeout};
+    _add_optional_options( $options, \%params );
 
     return $options;
+}
+
+# Croaks on a value the WebAuthn enumerations do not have, or a malformed
+# timeout or extensions
+sub _check_option_values {
+    my ($params) = @_;
+
+    for my $name ( sort keys %OPTION_VALUES ) {
+        next unless defined $params->{$name};
+        my @values =
+          $name eq "hints"
+          ? @{ _require_list( $params->{$name}, $name ) }
+          : ( $params->{$name} );
+        for my $value (@values) {
+            unless ( grep { $_ eq $value } @{ $OPTION_VALUES{$name} } ) {
+                croak("Invalid $name: $value");
+            }
+        }
+    }
+    if ( defined $params->{timeout} and $params->{timeout} !~ /^[1-9]\d*$/ ) {
+        croak("Invalid timeout: $params->{timeout}");
+    }
+    if ( defined $params->{extensions}
+        and ref( $params->{extensions} ) ne "HASH" )
+    {
+        croak("extensions must be a HASH reference");
+    }
+    return;
+}
+
+sub _require_list {
+    my ( $value, $name ) = @_;
+    croak("$name must be an ARRAY reference") unless ref($value) eq "ARRAY";
+    return $value;
+}
+
+sub _add_optional_options {
+    my ( $options, $params ) = @_;
+
+    $options->{timeout}    = $params->{timeout} + 0 if $params->{timeout};
+    $options->{hints}      = $params->{hints}       if $params->{hints};
+    $options->{extensions} = $params->{extensions}  if $params->{extensions};
+    return;
 }
 
 sub _generate_challenge {

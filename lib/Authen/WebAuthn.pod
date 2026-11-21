@@ -110,8 +110,8 @@ The name of your Relying Party, as shown to the user. Required.
 
 =item user_id
 
-The user handle: an opaque identifier of the user account, at most 64 bytes,
-which must not contain personal information. Required.
+The user handle: an opaque identifier of the user account, at most 64 bytes
+(longer is refused), which must not contain personal information. Required.
 
 =item user_name
 
@@ -138,7 +138,8 @@ to C<validate_registration>.
 
 =item attestation
 
-The attestation conveyance preference. Defaults to C<none>.
+The attestation conveyance preference: C<none> (the default), C<indirect>,
+C<direct> or C<enterprise>.
 
 =item exclude_credentials
 
@@ -149,7 +150,8 @@ C<transports>.
 
 =item resident_key
 
-C<required>, C<preferred> or C<discouraged>. Omitted by default.
+C<required>, C<preferred> or C<discouraged>. Omitted by default. C<required>
+also sets C<requireResidentKey>, for browsers that predate C<residentKey>.
 
 =item authenticator_attachment
 
@@ -160,7 +162,22 @@ C<platform> or C<cross-platform>. Omitted by default.
 How long the browser may wait for the user, in milliseconds. Omitted by
 default.
 
+=item hints
+
+An arrayref of C<security-key>, C<client-device> and C<hybrid>, in order of
+preference, to guide the browser's choice of authenticator. Omitted by
+default.
+
+=item extensions
+
+A hashref of client extension inputs, such as C<< { credProps => JSON::true } >>,
+passed to the browser as given. Omitted by default.
+
 =back
+
+Values outside the ones listed above for C<requested_uv>, C<attestation>,
+C<resident_key>, C<authenticator_attachment> and C<hints>, and a C<timeout>
+that is not a positive whole number, make this method croak.
 
 =method generate_assertion_options
 
@@ -199,7 +216,14 @@ credential.
 How long the browser may wait for the user, in milliseconds. Omitted by
 default.
 
+=item hints, extensions
+
+As for C<generate_registration_options>.
+
 =back
+
+C<requested_uv>, C<hints> and C<timeout> are checked as for
+C<generate_registration_options>.
 
 =method validate_registration
 

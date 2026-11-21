@@ -27,7 +27,9 @@ Unreleased
   [New]
   - ES384, ES512 and EdDSA (Ed25519) credential keys
   - origin can be an arrayref of accepted origins (Frank Carnovale)
-  - generate_registration_options and generate_assertion_options
+  - generate_registration_options and generate_assertion_options, which
+    check their options against the WebAuthn enumerations and take hints
+    and extensions
   - allowed_algs option to validate_registration
   - appid option to validate_assertion, for U2F AppIDs other than the
     origin
