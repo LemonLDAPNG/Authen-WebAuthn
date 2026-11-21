@@ -148,15 +148,23 @@ subtest "Registration, client extension outputs" => sub {
         "... or refused, if the caller says so"
     );
 
+    # A requested output must be well formed
+    my $requested = { credProps => JSON::true, prf => {} };
     refused(
-        register( { extension_results => { credProps => { rk => "yes" } } } ),
+        register(
+            {
+                requested_extensions => $requested,
+                extension_results    => { credProps => { rk => "yes" } }
+            }
+        ),
         qr/Client extension output credProps.rk is not a valid boolean/,
         "A credProps.rk that is not a boolean"
     );
     refused(
         register(
             {
-                extension_results =>
+                requested_extensions => $requested,
+                extension_results    =>
                   { prf => { results => { first => "not base64url!" } } }
             }
         ),
@@ -164,10 +172,39 @@ subtest "Registration, client extension outputs" => sub {
         "PRF results that are not base64url"
     );
     refused(
-        register( { extension_results => { credProps => "x" } } ),
+        register(
+            {
+                requested_extensions => $requested,
+                extension_results    => { credProps => "x" }
+            }
+        ),
         qr/Client extension output credProps is not a map/,
         "An output that is not a map"
     );
+
+    # Without requested_extensions, nothing was asked for: a malformed
+    # output is left out, as a client that skips toJSON() sends one
+    $result = register(
+        {
+            extension_results => {
+                credProps => { rk      => JSON::true },
+                prf       => { results => { first => {} } },
+            }
+        }
+    );
+    ok( $result, "A malformed output nobody asked for is not refused" )
+      or diag($@);
+    is_deeply( [ keys %{ $result->{extension_results} } ],
+        ["credProps"], "... but left out" );
+
+    for my $false ( !!0, JSON::false, "", 0 ) {
+        ok(
+            register(
+                { extension_results => { credProps => { rk => $false } } }
+            )->{discoverable} eq "0",
+            "A false of \"$false\" is a boolean"
+        );
+    }
     refused(
         register( { extension_results => ["credProps"] } ),
         qr/Client extension results is not a map/,
@@ -198,13 +235,18 @@ subtest "Registration, authenticator extension outputs" => sub {
     is( $result && $result->{authenticator_extensions}->{credProtect},
         2, "... are returned" );
 
+    my $requested =
+      { requested_extensions =>
+          { credentialProtectionPolicy => "x", minPinLength => JSON::true } };
     refused(
-        register( undef, registration_extensions( credProtect => 5 ) ),
+        register( $requested, registration_extensions( credProtect => 5 ) ),
 qr/Authenticator extension output credProtect is not a valid credProtect/,
         "A credProtect policy that does not exist"
     );
     refused(
-        register( undef, registration_extensions( minPinLength => "four" ) ),
+        register(
+            $requested, registration_extensions( minPinLength => "four" )
+        ),
         qr/Authenticator extension output minPinLength is not a valid count/,
         "A minPinLength that is not a number"
     );
@@ -249,13 +291,18 @@ subtest "Authentication" => sub {
 
     refused(
         authenticate(
-            undef, extension_results => { largeBlob => { written => "yes" } }
+            undef,
+            requested_extensions => { largeBlob => {} },
+            extension_results    => { largeBlob => { written => "yes" } }
         ),
         qr/Client extension output largeBlob.written is not a valid boolean/,
         "A largeBlob.written that is not a boolean"
     );
     refused(
-        authenticate( assertion_extensions( "hmac-secret" => [] ) ),
+        authenticate(
+            assertion_extensions( "hmac-secret" => [] ),
+            requested_extensions => { prf => {} }
+        ),
         qr/Authenticator extension output hmac-secret is not a valid bytes/,
         "An hmac-secret that is not bytes"
     );

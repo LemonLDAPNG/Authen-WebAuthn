@@ -50,7 +50,7 @@ sub register {
 }
 
 sub authenticate {
-    my ($override) = @_;
+    my ( $override, %options ) = @_;
 
     my $assertion = $authenticator->get_assertion_response(
         { request => { challenge => "def" } }, $override );
@@ -67,6 +67,7 @@ sub authenticate {
               encode_base64url( $assertion->{response}->{authenticatorData} ),
             signature_b64 =>
               encode_base64url( $assertion->{response}->{signature} ),
+            %options,
         );
     };
 }
@@ -150,5 +151,85 @@ like(
     qr/Credential ID is longer than 1023 bytes/,
     "With the expected message"
 );
+
+ok( !authenticate( assertion_flags( userPresent => 0 ) ),
+    "Assertion: user not present is refused" );
+like(
+    $@,
+    qr/User not present during WebAuthn authentication/,
+    "With the expected message"
+);
+
+# A value outside the enumeration would otherwise read as "preferred"
+for my $uv (qw(Required require 1)) {
+    ok(
+        !authenticate( undef, requested_uv => $uv ),
+        "Assertion: requested_uv $uv is refused"
+    );
+    like( $@, qr/Invalid requested_uv: $uv/, "With the expected message" );
+    ok(
+        !register( { requested_uv => $uv } ),
+        "Registration: requested_uv $uv is refused"
+    );
+    like( $@, qr/Invalid requested_uv: $uv/, "With the expected message" );
+}
+
+subtest "Signature counter" => sub {
+    $authenticator->sign_count(5);
+    ok( authenticate( undef,  stored_sign_count => 4 ), "A higher count" );
+    ok( !authenticate( undef, stored_sign_count => 5 ), "An equal count" );
+    like(
+        $@,
+qr/Device signature count 5 is not higher than stored signature count 5/,
+        "... is refused"
+    );
+
+    # An authenticator without a counter sends 0, but this one had one
+    $authenticator->sign_count(0);
+    ok( !authenticate( undef, stored_sign_count => 5 ),
+        "A count of 0 after a count of 5" );
+    like(
+        $@,
+qr/Device signature count 0 is not higher than stored signature count 5/,
+        "... is refused"
+    );
+    ok(
+        authenticate( undef, stored_sign_count => 0 ),
+        "Counts of 0 on both sides are accepted"
+    );
+};
+
+subtest "Trailing bytes" => sub {
+    my $assertion = $authenticator->get_assertion_response(
+        { request => { challenge => "def" } } );
+    my $auth_data = $assertion->{response}->{authenticatorData};
+    ok( Authen::WebAuthn::getAuthData($auth_data), "Assertion data" );
+    ok( !eval { Authen::WebAuthn::getAuthData( $auth_data . "\0" ) },
+        "... with a byte more is refused" );
+    like(
+        $@,
+        qr/Trailing bytes in authenticator data/,
+        "With the expected message"
+    );
+
+    my $object = Authen::WebAuthn::getAttestationObject(
+        encode_base64url(
+            $authenticator->get_credential_response(
+                { request => { challenge => "abc" } }
+            )->{response}->{attestationObject}
+        )
+    );
+    ok(
+        !eval {
+            Authen::WebAuthn::getAuthData( $object->{authDataRaw} . "\0" );
+        },
+        "Registration data with a byte more is refused"
+    );
+    like(
+        $@,
+        qr/Trailing bytes in authenticator data/,
+        "With the expected message"
+    );
+};
 
 done_testing();

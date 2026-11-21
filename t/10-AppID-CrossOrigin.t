@@ -110,6 +110,30 @@ subtest "Cross-origin requests" => sub {
     ok( !authenticate( client_data( crossOrigin => JSON::true ) ),
         "Refused without a top origin" );
 
+    # A single origin as a string must not allow every one
+    $rp->allow_cross_origin("https://top.example.com");
+    ok( !authenticate($iframe), "allow_cross_origin as a string is refused" );
+    like(
+        $@,
+        qr/allow_cross_origin must be 0, 1 or an arrayref of origins/,
+        "With the expected message"
+    );
+
+    # A top origin is checked even without crossOrigin
+    $rp->allow_cross_origin(0);
+    ok( !authenticate( client_data( topOrigin => "https://evil.example" ) ),
+        "A top origin without crossOrigin is refused" );
+    like(
+        $@,
+        qr/Cross-origin requests are not allowed/,
+        "With the expected message"
+    );
+    $rp->allow_cross_origin( ["https://top.example.com"] );
+    ok( !authenticate( client_data( topOrigin => "https://evil.example" ) ),
+        "... and must be an allowed one" );
+    ok( authenticate( client_data( topOrigin => "https://top.example.com" ) ),
+        "... which is accepted" );
+
     $rp->allow_cross_origin(0);
 };
 
@@ -144,6 +168,16 @@ subtest "AppID extension" => sub {
         authenticate( undef, extension_results => { appid => 0 } ),
         "And a false extension result changes nothing"
     );
+
+    my $result = authenticate(
+        $u2f,
+        extension_results =>
+          { appid => 1, prf => { results => { first => "AQID" } } },
+        appid => $appid
+    );
+    is_deeply( $result && [ sort keys %{ $result->{extension_results} } ],
+        [qw(appid prf)],
+        "Without requested_extensions, the other outputs are kept" );
 };
 
 done_testing();

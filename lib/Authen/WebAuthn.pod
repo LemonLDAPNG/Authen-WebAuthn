@@ -82,7 +82,11 @@ page's, if the page allows it. By default such requests are refused
 (C<crossOrigin> is true in the client data).
 
 Set this to 1 to accept them, or to an arrayref of the top-level origins you
-accept, which are compared with C<topOrigin> in the client data.
+accept, which are compared with C<topOrigin> in the client data. Any other
+value, such as a single origin as a string, makes such requests fail.
+
+A C<topOrigin> in the client data is checked the same way even when
+C<crossOrigin> is not set.
 
 =method generate_registration_options
 
@@ -245,7 +249,8 @@ The base64url-encoded challenge that was submitted to the authenticator
 =item requested_uv
 
 Whether or not the Relying Party required user verification for this operation.
-Possible values are C<required>, C<preferred>, C<discouraged>.
+Possible values are C<required>, C<preferred> (the default) and
+C<discouraged>; any other value makes validation fail.
 
 =item client_data_json_b64
 
@@ -328,7 +333,9 @@ The client extension outputs: what C<getClientExtensionResults()> returned in
 the browser, as C<PublicKeyCredential.toJSON()> writes them (bytes in
 base64url). The outputs of the extensions this module knows (C<appid>,
 C<appidExclude>, C<credProps>, C<largeBlob>, C<prf>) are checked for type;
-others are passed through.
+others are passed through. An output of the wrong type is refused if it was
+requested, and left out of the results if C<requested_extensions> is not
+given.
 
 =item requested_extensions
 
@@ -346,8 +353,8 @@ them. Only applies when C<requested_extensions> is given.
 =back
 
 The credential public key is checked before registration succeeds: its key
-type must match its algorithm, it must parse, and an RSA key must be at least
-2048 bits long.
+type must match its algorithm, it must parse, and an RSA key must be between
+2048 and 4096 bits long, with an odd modulus and exponent.
 
 This method croaks on errors. If the registration was successful, it returns a hashref with the following subkeys:
 
@@ -452,7 +459,8 @@ disable verification of the signature count
 =item requested_uv
 
 Whether or not the Relying Party required user verification for this operation.
-Possible values are C<required>, C<preferred>, C<discouraged>.
+Possible values are C<required>, C<preferred> (the default) and
+C<discouraged>; any other value makes validation fail.
 
 =item client_data_json_b64
 

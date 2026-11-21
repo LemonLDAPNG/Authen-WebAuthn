@@ -239,14 +239,14 @@ test_authentication(
     { stored_sign_count => 20 },
     {},
     "Fails with wrong signature count",
-    qr,Stored signature count.*higher than device signature count,
+    qr,Device signature count \d+ is not higher than stored signature count,
 );
 
 test_authentication(
     { stored_sign_count => 10 },
     {},
     "Fails with wrong signature count",
-    qr,Stored signature count.*higher than device signature count,
+    qr,Device signature count \d+ is not higher than stored signature count,
 );
 $authenticator->sign_count(0);
 

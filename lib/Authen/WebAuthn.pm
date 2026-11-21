@@ -388,6 +388,7 @@ sub validate_registration {
     # 15. If user verification is required for this registration, verify that
     # the User Verified bit of the flags in authData is set.
     $requested_uv ||= "preferred";
+    _check_option_values( { requested_uv => $requested_uv } );
     if (    $requested_uv eq "required"
         and $authenticator_data->{flags}->{userVerified} != 1 )
     {
@@ -532,10 +533,18 @@ sub _check_origin {
 sub _check_cross_origin {
     my ( $self, $client_data ) = @_;
 
-    return unless $client_data->{crossOrigin};
+    # A topOrigin without crossOrigin is still a request from an iframe
+    return
+      unless $client_data->{crossOrigin}
+      or defined $client_data->{topOrigin};
 
     my $allowed = $self->allow_cross_origin;
     croak("Cross-origin requests are not allowed") unless $allowed;
+
+    # A single origin given as a string would otherwise allow them all
+    unless ( ref($allowed) eq "ARRAY" or $allowed eq "1" ) {
+        croak("allow_cross_origin must be 0, 1 or an arrayref of origins");
+    }
 
     if ( ref($allowed) eq "ARRAY" ) {
         my $top_origin = $client_data->{topOrigin};
@@ -658,6 +667,10 @@ sub validate_assertion {
 
     # An appid output counts only if the appid extension was requested, when
     # the caller says what was requested
+    my $requested_appid =
+      ref($requested_extensions) eq "HASH"
+      ? $requested_extensions->{appid}
+      : undef;
     my $hash_rp_id;
     if (
             ref($extension_results) eq "HASH"
@@ -668,8 +681,7 @@ sub validate_assertion {
         )
       )
     {
-        $hash_rp_id =
-          sha256( $appid // $requested_extensions->{appid} // $matched_origin );
+        $hash_rp_id = sha256( $appid // $requested_appid // $matched_origin );
     }
     else {
         $hash_rp_id = sha256( $self->rp_id );
@@ -691,6 +703,7 @@ sub validate_assertion {
     # 17. If user verification is required for this assertion, verify that the
     # User Verified bit of the flags in authData is set.
     $requested_uv ||= "preferred";
+    _check_option_values( { requested_uv => $requested_uv } );
     if (    $requested_uv eq "required"
         and $authenticator_data->{flags}->{userVerified} != 1 )
     {
@@ -725,8 +738,8 @@ sub validate_assertion {
     my $signature_count = $authenticator_data->{signCount};
     if ( $signature_count > 0 or $stored_sign_count > 0 ) {
         if ( $signature_count <= $stored_sign_count ) {
-            croak(  "Stored signature count $stored_sign_count "
-                  . "higher than device signature count $signature_count" );
+            croak(  "Device signature count $signature_count is not higher "
+                  . "than stored signature count $stored_sign_count" );
         }
     }
 
@@ -754,8 +767,15 @@ sub _check_credential_and_user {
     {
         my $credential_id_b64 = $params{credential_id_b64};
         croak("Missing credential_id_b64") unless $credential_id_b64;
-        my $credential_id = decode_base64url($credential_id_b64);
-        unless ( grep { decode_base64url($_) eq $credential_id } @$allowed ) {
+        my $credential_id =
+          _decode_base64url_strict( $credential_id_b64, "credential_id_b64" );
+        unless (
+            grep {
+                _decode_base64url_strict( $_, "allowed_credential_ids" ) eq
+                  $credential_id
+            } @$allowed
+          )
+        {
             croak(  "Credential $credential_id_b64 is not one of the "
                   . "allowed credentials" );
         }
@@ -776,14 +796,28 @@ sub _check_credential_and_user {
             croak(  "expected_user_handle_b64 is required to check the "
                   . "user handle" );
         }
-        unless (
-            decode_base64url($user_handle_b64) eq decode_base64url($expected) )
+        my $user_handle =
+          _decode_base64url_strict( $user_handle_b64, "user_handle_b64" );
+        unless ( $user_handle eq
+            _decode_base64url_strict( $expected, "expected_user_handle_b64" ) )
         {
             croak(  "User handle ($user_handle_b64) does not match the "
                   . "credential's owner ($expected)" );
         }
+        $user_handle_b64 = encode_base64url($user_handle);
     }
     return $user_handle_b64;
+}
+
+# decode_base64url skips characters outside the alphabet, so "AA.AA" would
+# be the credential "AAAA"
+sub _decode_base64url_strict {
+    my ( $value, $name ) = @_;
+    croak("$name is not valid base64url")
+      unless _is_string($value)
+      and $value =~ /^[A-Za-z0-9_-]*\z/
+      and length($value) % 4 != 1;
+    return decode_base64url($value);
 }
 
 # The outputs of the extensions this module knows, by ceremony, and the type
@@ -881,8 +915,18 @@ sub _check_extension_outputs {
             next;
         }
         if ( $types->{$id} ) {
-            _check_extension_value( "$kind output $id",
-                $outputs->{$id}, $types->{$id} );
+            my $valid = eval {
+                _check_extension_value( "$kind output $id",
+                    $outputs->{$id}, $types->{$id} );
+                1;
+            };
+
+            # Without requested_extensions, nothing was asked for: a
+            # malformed output is left out of the results, not refused
+            unless ($valid) {
+                die $@ if $solicited;
+                next;
+            }
         }
         $checked{$id} = $outputs->{$id};
     }
@@ -924,7 +968,7 @@ sub _is_string {
 sub _is_boolean {
     my ($value) = @_;
     return 1 if JSON::is_bool($value) or Types::Serialiser::is_bool($value);
-    return ( _is_string($value) and $value =~ /^[01]$/ );
+    return ( _is_string($value) and $value =~ /^[01]?\z/ );
 }
 
 # credProps tells whether the credential is discoverable

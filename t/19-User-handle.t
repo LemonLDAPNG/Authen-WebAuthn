@@ -167,4 +167,56 @@ subtest "User identified by the ceremony" => sub {
     }
 };
 
+# decode_base64url skips characters outside the alphabet: "AA.AA" would
+# otherwise be the credential "AAAA"
+subtest "Identifiers must be base64url" => sub {
+    my $dotted =
+      substr( $credential_id, 0, 2 ) . "." . substr( $credential_id, 2 );
+    refused(
+        authenticate(
+            undef,
+            credential_id_b64      => $dotted,
+            allowed_credential_ids => [$credential_id],
+        ),
+        qr/credential_id_b64 is not valid base64url/,
+        "A credential ID with a character outside the alphabet"
+    );
+    refused(
+        authenticate(
+            undef,
+            credential_id_b64      => $credential_id,
+            allowed_credential_ids => [$dotted],
+        ),
+        qr/allowed_credential_ids is not valid base64url/,
+        "An allowed credential ID with one"
+    );
+    refused(
+        authenticate(
+            undef,
+            user_handle_b64          => "!",
+            expected_user_handle_b64 => "",
+        ),
+        qr/user_handle_b64 is not valid base64url/,
+        "A user handle of \"!\""
+    );
+    refused(
+        authenticate(
+            undef,
+            user_handle_b64          => $handle,
+            expected_user_handle_b64 => "$handle=",
+        ),
+        qr/expected_user_handle_b64 is not valid base64url/,
+        "An expected user handle with padding"
+    );
+    refused(
+        authenticate(
+            undef,
+            user_handle_b64          => "AAAAA",
+            expected_user_handle_b64 => "AAAA",
+        ),
+        qr/user_handle_b64 is not valid base64url/,
+        "A length no base64url encoding has"
+    );
+};
+
 done_testing();
