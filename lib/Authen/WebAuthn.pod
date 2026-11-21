@@ -286,6 +286,10 @@ encountered.
 
 =back
 
+The credential public key is checked before registration succeeds: its key
+type must match its algorithm, it must parse, and an RSA key must be at least
+2048 bits long.
+
 This method croaks on errors. If the registration was successful, it returns a hashref with the following subkeys:
 
 =over 4

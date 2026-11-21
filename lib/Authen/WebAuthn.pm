@@ -296,6 +296,11 @@ sub validate_registration {
     # extensions in authData are as expected
     # TODO
 
+    # Refuse a key that could never verify an assertion, rather than let the
+    # Relying Party store it
+    _check_credential_public_key( $authenticator_data->{attestedCredentialData}
+          ->{credentialPublicKey} );
+
     # 18. Determine the attestation statement format by performing a USASCII
     # case-sensitive match on fmt against the set of supported WebAuthn
     # Attestation Statement Format Identifier values.
@@ -414,6 +419,42 @@ sub _check_cross_origin {
             croak(  "Top origin "
                   . ( $top_origin // "(none)" )
                   . " is not allowed" );
+        }
+    }
+    return;
+}
+
+# COSE key type for each key type (RFC 8152, section 13)
+my $COSE_KTY = { OKP => 1, ECC => 2, RSA => 3 };
+
+my $MIN_RSA_BITS = 2048;
+
+sub _check_credential_public_key {
+    my ($cose_raw) = @_;
+
+    my $cose_key = _decode_cbor($cose_raw);
+    unless ( ref($cose_key) eq "HASH" ) {
+        croak("Credential public key is not a COSE key");
+    }
+
+    my $alg_num = $cose_key->{3} // "";
+    my $alg     = $COSE_ALG->{$alg_num};
+    croak("Unsupported algorithm $alg_num") unless $alg;
+
+    my $kty = $cose_key->{1} // "";
+    unless ( $kty eq $COSE_KTY->{ $alg->{key_type} } ) {
+        croak("Key type $kty cannot be used with algorithm $alg_num");
+    }
+
+    eval { getPubKeyVerifier($cose_raw) };
+    croak("Invalid credential public key: $@") if $@;
+
+    if ( $alg->{key_type} eq "RSA" ) {
+        ( my $modulus = $cose_key->{-1} ) =~ s/^\x00+//;
+        my $bits = 8 * length($modulus);
+        if ( $bits < $MIN_RSA_BITS ) {
+            croak(
+                "RSA key of $bits bits is too short (min: $MIN_RSA_BITS)");
         }
     }
     return;
