@@ -34,7 +34,7 @@ Unreleased
   - origin can be an arrayref of accepted origins (Frank Carnovale)
   - generate_registration_options and generate_assertion_options, which
     check their options against the WebAuthn enumerations and take hints
-    and extensions
+    and extensions, and offer EdDSA, ES256 and RS256 by default
   - allowed_algs option to validate_registration
   - appid option to validate_assertion, for U2F AppIDs other than the
     origin

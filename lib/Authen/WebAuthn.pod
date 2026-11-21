@@ -128,8 +128,13 @@ The base64url-encoded challenge. By default, 32 random bytes are generated.
 =item allowed_algs
 
 An arrayref of COSE algorithm identifiers, in order of preference. Defaults to
-C<[-7, -257]> (ES256 and RS256). Pass the same value to
+C<[-8, -7, -257]> (EdDSA, ES256 and RS256), which WebAuthn recommends for
+supporting a wide range of authenticators. Pass the same value to
 C<validate_registration>.
+
+WebAuthn advises against offering the fully-specified identifiers -9, -51, -52
+and -19 here, as many authenticators do not know them; offer ES256, ES384,
+ES512 and EdDSA instead.
 
 =item requested_uv
 

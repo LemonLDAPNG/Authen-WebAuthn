@@ -119,8 +119,9 @@ my $COSE_ALG = {
     }
 };
 
-# ES256 and RS256: what every platform authenticator and security key can do
-my $DEFAULT_ALGS = [ -7, -257 ];
+# EdDSA, ES256 and RS256, which WebAuthn Level 3 says a Relying Party that
+# wants to support a wide range of authenticators should offer
+my $DEFAULT_ALGS = [ -8, -7, -257 ];
 
 # Values the WebAuthn enumerations allow, for the options that take one
 my %OPTION_VALUES = (

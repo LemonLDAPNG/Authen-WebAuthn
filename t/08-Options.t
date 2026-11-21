@@ -59,10 +59,11 @@ subtest "Registration options" => sub {
     is_deeply(
         $options->{pubKeyCredParams},
         [
+            { type => "public-key", alg => -8 },
             { type => "public-key", alg => -7 },
             { type => "public-key", alg => -257 }
         ],
-        "ES256 and RS256 by default"
+        "EdDSA, ES256 and RS256 by default"
     );
     is( $options->{attestation}, "none", "No attestation by default" );
     is( $options->{authenticatorSelection}->{userVerification},
