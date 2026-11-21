@@ -20,6 +20,8 @@ Unreleased
   - Malformed input is refused with this module's own messages, not Perl
     errors and warnings; this includes a packed attestation certificate
     without Basic Constraints
+  - An appid extension output is ignored if the appid extension was not
+    requested, when requested_extensions is given
   - Authenticator data with Backup State but not Backup Eligibility, and
     credential IDs over 1023 bytes, are refused, as WebAuthn Level 3
     requires
@@ -35,6 +37,14 @@ Unreleased
     origin
   - validate_registration and validate_assertion return user_verified,
     backup_eligible and backup_state
+  - Sign-in without a username: validate_assertion checks the credential
+    against the allowed credentials and the user handle against the
+    credential's owner, and can require a user handle
+  - Extension outputs are checked: the client's (appid, appidExclude,
+    credProps, largeBlob, prf) and the authenticator's (credProtect,
+    hmac-secret, minPinLength, credBlob), against their types and against
+    what was requested; validate_registration reports whether the
+    credential is discoverable
 
   [Authen::WebAuthn::Test]
   - Produces RSA, P-384, P-521 and Ed25519 keys

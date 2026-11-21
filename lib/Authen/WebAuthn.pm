@@ -12,6 +12,7 @@ use Crypt::PK::Ed25519;
 use Crypt::PRNG;
 use Crypt::OpenSSL::X509 1.808;
 use CBOR::XS 1.6 ();
+use Types::Serialiser ();
 use URI;
 use Carp;
 use Authen::WebAuthn::SSLeayChainVerifier;
@@ -260,7 +261,8 @@ sub validate_registration {
         $client_data_json_b64,        $attestation_object_b64,
         $trust_anchors,               $allowed_attestation_types,
         $allow_untrusted_attestation, $allow_unknown_attestation_format,
-        $allowed_algs,
+        $allowed_algs,                $extension_results,
+        $requested_extensions,
       )
       = @params{ qw(
           challenge_b64        requested_uv
@@ -268,6 +270,7 @@ sub validate_registration {
           trust_anchors
           allowed_attestation_types allow_untrusted_attestation
           allow_unknown_attestation_format allowed_algs
+          extension_results requested_extensions
         )
       };
 
@@ -363,7 +366,11 @@ sub validate_registration {
     # 17. Verify that the values of the client extension outputs in
     # clientExtensionResults and the authenticator extension outputs in the
     # extensions in authData are as expected
-    # TODO
+    my %extensions = _check_extensions(
+        "registration", $extension_results, $requested_extensions,
+        $params{allow_unsolicited_extensions} // 1,
+        $authenticator_data->{extensions},
+    );
 
     # Refuse a key that could never verify an assertion, rather than let the
     # Relying Party store it
@@ -455,6 +462,8 @@ sub validate_registration {
         signature_count    => $signature_count,
         attestation_result => $attestation_result,
         _flags_result( $authenticator_data->{flags} ),
+        %extensions,
+        _discoverable( $extensions{extension_results} ),
     };
 }
 
@@ -535,15 +544,22 @@ sub validate_assertion {
         $stored_sign_count,    $requested_uv,
         $client_data_json_b64, $authenticator_data_b64,
         $signature_b64,        $extension_results,
-        $appid,
+        $appid,                $requested_extensions,
       )
       = @params{
         qw(challenge_b64  credential_pubkey_b64
           stored_sign_count  requested_uv
           client_data_json_b64 authenticator_data_b64
           signature_b64 extension_results
-          appid)
+          appid requested_extensions)
       };
+
+    # 5. If options.allowCredentials is not empty, verify that credential.id
+    # identifies one of the public key credentials listed in
+    # options.allowCredentials.
+    # 6. Identify the user being authenticated, and verify that the user
+    # handle, if present, is that of the credential's owner.
+    my $user_handle_b64 = _check_credential_and_user(%params);
 
     # 7. Using credential.id (or credential.rawId, if base64url encoding is
     # inappropriate for your use case), look up the corresponding credential
@@ -596,9 +612,20 @@ sub validate_assertion {
     # If using the appid extension, this step needs some special logic. See
     # § 10.1 FIDO AppID Extension (appid) for details.
 
+    # An appid output counts only if the appid extension was requested, when
+    # the caller says what was requested
     my $hash_rp_id;
-    if ( $extension_results->{appid} ) {
-        $hash_rp_id = sha256( $appid // $matched_origin );
+    if (
+            ref($extension_results) eq "HASH"
+        and $extension_results->{appid}
+        and !(
+            ref($requested_extensions) eq "HASH"
+            and !exists $requested_extensions->{appid}
+        )
+      )
+    {
+        $hash_rp_id =
+          sha256( $appid // $requested_extensions->{appid} // $matched_origin );
     }
     else {
         $hash_rp_id = sha256( $self->rp_id );
@@ -629,7 +656,11 @@ sub validate_assertion {
     # 18. Verify that the values of the client extension outputs in
     # clientExtensionResults and the authenticator extension outputs in the
     # extensions in authData are as expected,
-    # TODO
+    my %extensions = _check_extensions(
+        "authentication", $extension_results, $requested_extensions,
+        $params{allow_unsolicited_extensions} // 1,
+        $authenticator_data->{extensions},
+    );
 
     # 19. Let hash be the result of computing a hash over the cData using
     # SHA-256.
@@ -659,7 +690,205 @@ sub validate_assertion {
         success         => 1,
         signature_count => $signature_count,
         _flags_result( $authenticator_data->{flags} ),
+        %extensions,
+        (
+            defined $user_handle_b64
+            ? ( user_handle_b64 => $user_handle_b64 )
+            : ()
+        ),
     };
+}
+
+# Steps 5 and 6 of authentication. Returns the user handle, if the client
+# sent one.
+sub _check_credential_and_user {
+    my (%params) = @_;
+
+    my $allowed = $params{allowed_credential_ids};
+    if ( defined $allowed
+        and @{ _require_list( $allowed, "allowed_credential_ids" ) } )
+    {
+        my $credential_id_b64 = $params{credential_id_b64};
+        croak("Missing credential_id_b64") unless $credential_id_b64;
+        my $credential_id = decode_base64url($credential_id_b64);
+        unless ( grep { decode_base64url($_) eq $credential_id } @$allowed ) {
+            croak(  "Credential $credential_id_b64 is not one of the "
+                  . "allowed credentials" );
+        }
+    }
+
+    my $user_handle_b64 = $params{user_handle_b64};
+    undef $user_handle_b64
+      unless defined $user_handle_b64 and length $user_handle_b64;
+
+    # When the user was not identified before the ceremony, the user handle
+    # is what identifies them
+    if ( $params{require_user_handle} and !defined $user_handle_b64 ) {
+        croak("Missing user handle");
+    }
+    if ( defined $user_handle_b64 ) {
+        my $expected = $params{expected_user_handle_b64};
+        unless ( defined $expected ) {
+            croak(  "expected_user_handle_b64 is required to check the "
+                  . "user handle" );
+        }
+        unless (
+            decode_base64url($user_handle_b64) eq decode_base64url($expected) )
+        {
+            croak(  "User handle ($user_handle_b64) does not match the "
+                  . "credential's owner ($expected)" );
+        }
+    }
+    return $user_handle_b64;
+}
+
+# The outputs of the extensions this module knows, by ceremony, and the type
+# of each member. Client outputs are as PublicKeyCredential.toJSON() writes
+# them, with bytes in base64url; authenticator outputs are as CBOR decodes
+# them.
+my %CLIENT_EXTENSION_OUTPUTS = (
+    registration => {
+        appidExclude => "boolean",
+        credProps    => { rk        => "boolean" },
+        largeBlob    => { supported => "boolean" },
+        prf          => {
+            enabled => "boolean",
+            results => { first => "base64url", second => "base64url" },
+        },
+    },
+    authentication => {
+        appid     => "boolean",
+        largeBlob => { blob => "base64url", written => "boolean" },
+        prf => { results => { first => "base64url", second => "base64url" } },
+    },
+);
+
+my %AUTHENTICATOR_EXTENSION_OUTPUTS = (
+    registration => {
+        credProtect   => "credProtect",
+        "hmac-secret" => "boolean",
+        minPinLength  => "count",
+        credBlob      => "boolean",
+    },
+    authentication => {
+        "hmac-secret" => "bytes",
+        credBlob      => "bytes",
+    },
+);
+
+# The authenticator extension each client extension input asks for
+my %AUTHENTICATOR_EXTENSION_FOR = (
+    credentialProtectionPolicy => "credProtect",
+    prf                        => "hmac-secret",
+    hmacCreateSecret           => "hmac-secret",
+    minPinLength               => "minPinLength",
+    credBlob                   => "credBlob",
+    getCredBlob                => "credBlob",
+);
+
+# Checks the client and authenticator extension outputs against what was
+# requested and against the types above. Returns extension_results and,
+# if there are any, authenticator_extensions, without the unsolicited
+# outputs it ignored.
+sub _check_extensions {
+    my ( $ceremony, $client, $requested, $allow_unsolicited, $authenticator ) =
+      @_;
+
+    $client //= {};
+    _require_map( $client,    "Client extension results" );
+    _require_map( $requested, "requested_extensions" ) if defined $requested;
+
+    my ( $solicited_client, $solicited_authenticator );
+    if ($requested) {
+        $solicited_client        = { map { $_ => 1 } keys %$requested };
+        $solicited_authenticator = {
+            map { ( $AUTHENTICATOR_EXTENSION_FOR{$_} // $_ ) => 1 }
+              keys %$requested
+        };
+    }
+
+    my %checked = (
+        extension_results => _check_extension_outputs(
+            "Client extension",                   $client,
+            $CLIENT_EXTENSION_OUTPUTS{$ceremony}, $solicited_client,
+            $allow_unsolicited,
+        )
+    );
+    if ( defined $authenticator ) {
+        $checked{authenticator_extensions} = _check_extension_outputs(
+            "Authenticator extension",
+            $authenticator,
+            $AUTHENTICATOR_EXTENSION_OUTPUTS{$ceremony},
+            $solicited_authenticator,
+            $allow_unsolicited,
+        );
+    }
+    return %checked;
+}
+
+sub _check_extension_outputs {
+    my ( $kind, $outputs, $types, $solicited, $allow_unsolicited ) = @_;
+
+    my %checked;
+    for my $id ( sort keys %$outputs ) {
+        if ( $solicited and !$solicited->{$id} ) {
+            croak("$kind output $id was not requested")
+              unless $allow_unsolicited;
+            next;
+        }
+        if ( $types->{$id} ) {
+            _check_extension_value( "$kind output $id",
+                $outputs->{$id}, $types->{$id} );
+        }
+        $checked{$id} = $outputs->{$id};
+    }
+    return \%checked;
+}
+
+my %IS_VALID = (
+    boolean   => \&_is_boolean,
+    base64url => sub { _is_string( $_[0] ) and $_[0] =~ /^[A-Za-z0-9_-]*$/ },
+    bytes     => \&_is_string,
+    count     => sub { _is_string( $_[0] ) and $_[0] =~ /^\d+$/ },
+
+    # userVerificationOptional (1), userVerificationOptionalWithCredentialIDList
+    # (2) or userVerificationRequired (3)
+    credProtect => sub { _is_string( $_[0] ) and $_[0] =~ /^[123]$/ },
+);
+
+sub _check_extension_value {
+    my ( $name, $value, $type ) = @_;
+
+    if ( ref($type) eq "HASH" ) {
+        _require_map( $value, $name );
+        for my $member ( sort keys %$type ) {
+            next unless exists $value->{$member};
+            _check_extension_value( "$name.$member", $value->{$member},
+                $type->{$member} );
+        }
+        return;
+    }
+    croak("$name is not a valid $type") unless $IS_VALID{$type}->($value);
+    return;
+}
+
+sub _is_string {
+    my ($value) = @_;
+    return ( defined $value and !ref $value );
+}
+
+sub _is_boolean {
+    my ($value) = @_;
+    return 1 if JSON::is_bool($value) or Types::Serialiser::is_bool($value);
+    return ( _is_string($value) and $value =~ /^[01]$/ );
+}
+
+# credProps tells whether the credential is discoverable
+sub _discoverable {
+    my ($results) = @_;
+    my $credProps = $results->{credProps};
+    return () unless ref($credProps) eq "HASH" and exists $credProps->{rk};
+    return ( discoverable => $credProps->{rk} ? 1 : 0 );
 }
 
 # The flags of the authenticator data a Relying Party may want to store

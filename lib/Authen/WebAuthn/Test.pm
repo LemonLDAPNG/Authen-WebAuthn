@@ -20,6 +20,10 @@ has aaguid        => ( is => 'rw' );
 has key           => ( is => 'rw' );
 has sign_count    => ( is => 'rw', default => 0 );
 
+# The user handle the authenticator returns when signing, as raw bytes; empty
+# by default, as when the user was identified before the ceremony
+has user_handle => ( is => 'rw', default => '' );
+
 # COSE algorithm; by default, inferred from the key
 has alg => ( is => 'rw', lazy => 1, builder => '_build_alg' );
 
@@ -436,7 +440,7 @@ sub get_assertion_response {
                 },
                 signCount => $self->sign_count,
             },
-            userHandle => "",    #TODO
+            userHandle => $self->user_handle,
         }
     }, $override;
 
@@ -528,6 +532,11 @@ PS256), EdDSA for Ed25519.
 =item sign_count
 
 The signature counter to report. Default 0.
+
+=item user_handle
+
+The user handle returned when signing, as raw bytes, as an authenticator does
+for a discoverable credential. Empty by default.
 
 =item attestation_format
 

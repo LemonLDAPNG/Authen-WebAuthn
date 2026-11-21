@@ -307,6 +307,27 @@ This setting allows you to successfully validate registration, but change the
 attestation type to C<None> if an unimplemented attestation format is
 encountered.
 
+=item extension_results
+
+The client extension outputs: what C<getClientExtensionResults()> returned in
+the browser, as C<PublicKeyCredential.toJSON()> writes them (bytes in
+base64url). The outputs of the extensions this module knows (C<appid>,
+C<appidExclude>, C<credProps>, C<largeBlob>, C<prf>) are checked for type;
+others are passed through.
+
+=item requested_extensions
+
+The C<extensions> you passed to the browser. Given, an output for an extension
+you did not request is ignored, or refused with
+C<< allow_unsolicited_extensions => 0 >>. The same applies to the authenticator
+extension outputs in the authenticator data (C<credProtect>, C<hmac-secret>,
+C<minPinLength>, C<credBlob>), which are also checked for type.
+
+=item allow_unsolicited_extensions
+
+1 (the default) to ignore extension outputs you did not request, 0 to refuse
+them. Only applies when C<requested_extensions> is given.
+
 =back
 
 The credential public key is checked before registration succeeds: its key
@@ -343,6 +364,21 @@ change during the lifetime of a credential.
 =item backup_state
 
 1 if the credential is currently backed up, 0 otherwise
+
+=item extension_results
+
+The checked client extension outputs, without the unsolicited ones that were
+ignored.
+
+=item authenticator_extensions
+
+The checked authenticator extension outputs, if the authenticator data had any.
+
+=item discoverable
+
+1 if the C<credProps> extension says the credential is discoverable (a
+passkey that can sign in without a username), 0 if it says it is not. Absent
+when C<credProps> was not returned.
 
 =back
 
@@ -414,21 +450,52 @@ The base64url-encoded authenticator data received from the authenticator
 
 The base64url-encoded signature received from the authenticator
 
-=item extension_results
+=item credential_id_b64
 
-A hashref containing extension results received from the authenticator
+The base64url-encoded ID of the credential that signed (C<credential.id>).
+
+=item allowed_credential_ids
+
+An arrayref of the base64url-encoded credential IDs you offered in
+C<allowCredentials>. Given and not empty, C<credential_id_b64> must be one of
+them.
+
+=item user_handle_b64
+
+The base64url-encoded user handle the authenticator returned
+(C<response.userHandle>), if any. Given, it must equal
+C<expected_user_handle_b64>.
+
+=item expected_user_handle_b64
+
+The base64url-encoded user handle of the credential's owner, as given at
+registration (C<user.id>).
+
+=item require_user_handle
+
+Set this when the user was not identified before the ceremony, as when a
+passkey signs in without a username: the user handle is then required. You
+find the credential, and so its owner and public key, from
+C<credential_id_b64>, and the matching user handle proves the authenticator
+holds that owner's credential.
+
+=item extension_results, requested_extensions, allow_unsolicited_extensions
+
+As for C<validate_registration>. An C<appid> output counts only if the
+C<appid> extension was requested, when C<requested_extensions> is given.
 
 =item appid
 
 The AppID you passed in the C<appid> extension, if you did, for credentials
 registered with the FIDO U2F API. When C<< extension_results->{appid} >> is
 true, the authenticator data must carry the hash of this AppID instead of the
-RP ID. Defaults to the origin that matched, as in earlier versions.
+RP ID. Defaults to the C<appid> in C<requested_extensions>, then to the origin
+that matched, as in earlier versions.
 
 =back
 
-This method croaks on errors. If the registration was successful, it returns a
-hashref with the following subkeys:
+This method croaks on errors. If the authentication was successful, it returns
+a hashref with the following subkeys:
 
 =over 4
 
@@ -450,6 +517,19 @@ change during the lifetime of a credential.
 =item backup_state
 
 1 if the credential is currently backed up, 0 otherwise
+
+=item user_handle_b64
+
+The user handle the authenticator returned, if any
+
+=item extension_results
+
+The checked client extension outputs, without the unsolicited ones that were
+ignored.
+
+=item authenticator_extensions
+
+The checked authenticator extension outputs, if the authenticator data had any.
 
 =back
 
