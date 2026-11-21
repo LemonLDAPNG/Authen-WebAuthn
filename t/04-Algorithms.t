@@ -111,6 +111,11 @@ my @ecdsa = (
     [ "ES256", -7,  1, "secp256r1", 32, "SHA256" ],
     [ "ES384", -35, 2, "secp384r1", 48, "SHA384" ],
     [ "ES512", -36, 3, "secp521r1", 66, "SHA512" ],
+
+    # RFC 9864's fully-specified identifiers
+    [ "ESP256", -9,  1, "secp256r1", 32, "SHA256" ],
+    [ "ESP384", -51, 2, "secp384r1", 48, "SHA384" ],
+    [ "ESP512", -52, 3, "secp521r1", 66, "SHA512" ],
 );
 
 for my $case (@ecdsa) {
@@ -142,37 +147,72 @@ subtest "An algorithm is tied to its curve" => sub {
         qr/Curve 2 cannot be used with algorithm -7/,
         "ES256 with a P-384 key is refused"
     );
-};
 
-subtest "EdDSA" => sub {
-    my $key = Crypt::PK::Ed25519->new;
-    $key->generate_key;
-
-    my $cose = cose_key(
-        1  => cbor_int( 1),                                  # kty OKP
-        3  => cbor_int(-8),
-        -1 => cbor_int( 6),                                  # Ed25519
-        -2 => cbor_bstr( $key->export_key_raw("public") ),
-    );
-    my $verifier = Authen::WebAuthn::getPubKeyVerifier($cose);
-
-    ok( $verifier->( $key->sign_message($message), $message ),
-        "Signature is valid" );
-    ok( !$verifier->( $key->sign_message("other"), $message ),
-        "Signature of another message is not" );
-
-    my $other_curve = cose_key(
-        1  => cbor_int( 1),
-        3  => cbor_int(-8),
-        -1 => cbor_int( 7),                                  # Ed448
-        -2 => cbor_bstr( $key->export_key_raw("public") ),
-    );
-    eval { Authen::WebAuthn::getPubKeyVerifier($other_curve) };
+    eval {
+        Authen::WebAuthn::getPubKeyVerifier( ecc_cose_key( $key, -9, 2, 48 ) );
+    };
     like(
         $@,
-        qr/Curve 7 cannot be used with algorithm -8/,
-        "Another curve is refused"
+        qr/Curve 2 cannot be used with algorithm -9/,
+        "ESP256 with a P-384 key is refused"
     );
 };
+
+# In COSE, a compressed point has the sign of y, a boolean, in place of y
+subtest "Compressed points are refused" => sub {
+    my $key = Crypt::PK::ECC->new;
+    $key->generate_key("secp256r1");
+    my $x = pack( "H*", sprintf( "%064s", $key->key2hash->{pub_x} ) );
+
+    for my $alg ( -7, -9 ) {
+        my $compressed = cose_key(
+            1  => cbor_int(2),
+            3  => cbor_int($alg),
+            -1 => cbor_int(1),
+            -2 => cbor_bstr($x),
+            -3 => "\xf5",           # true
+        );
+        eval { Authen::WebAuthn::getPubKeyVerifier($compressed) };
+        like(
+            $@,
+            qr/EC2 key y coordinate is not a byte string/,
+            "Algorithm $alg"
+        );
+    }
+};
+
+# EdDSA, and RFC 9864's fully-specified Ed25519
+for my $alg ( -8, -19 ) {
+    subtest "EdDSA ($alg)" => sub {
+        my $key = Crypt::PK::Ed25519->new;
+        $key->generate_key;
+
+        my $cose = cose_key(
+            1  => cbor_int(1),                                   # kty OKP
+            3  => cbor_int($alg),
+            -1 => cbor_int(6),                                   # Ed25519
+            -2 => cbor_bstr( $key->export_key_raw("public") ),
+        );
+        my $verifier = Authen::WebAuthn::getPubKeyVerifier($cose);
+
+        ok( $verifier->( $key->sign_message($message), $message ),
+            "Signature is valid" );
+        ok( !$verifier->( $key->sign_message("other"), $message ),
+            "Signature of another message is not" );
+
+        my $other_curve = cose_key(
+            1  => cbor_int(1),
+            3  => cbor_int($alg),
+            -1 => cbor_int(7),                                   # Ed448
+            -2 => cbor_bstr( $key->export_key_raw("public") ),
+        );
+        eval { Authen::WebAuthn::getPubKeyVerifier($other_curve) };
+        like(
+            $@,
+            qr/Curve 7 cannot be used with algorithm $alg/,
+            "Another curve is refused"
+        );
+    };
+}
 
 done_testing();

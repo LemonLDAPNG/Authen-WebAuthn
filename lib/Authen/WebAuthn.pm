@@ -75,6 +75,33 @@ my $COSE_ALG = {
         curve             => 6,
         signature_options => []
     },
+
+    # The fully-specified identifiers of RFC 9864, which in WebAuthn mean the
+    # same as ES256, ES384, ES512 and EdDSA above
+    -9 => {
+        name              => "ESP256",
+        key_type          => "ECC",
+        curve             => 1,
+        signature_options => ["SHA256"]
+    },
+    -51 => {
+        name              => "ESP384",
+        key_type          => "ECC",
+        curve             => 2,
+        signature_options => ["SHA384"]
+    },
+    -52 => {
+        name              => "ESP512",
+        key_type          => "ECC",
+        curve             => 3,
+        signature_options => ["SHA512"]
+    },
+    -19 => {
+        name              => "Ed25519",
+        key_type          => "OKP",
+        curve             => 6,
+        signature_options => []
+    },
     -257 => {
         name              => "RS256",
         key_type          => "RSA",

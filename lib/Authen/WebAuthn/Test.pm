@@ -276,8 +276,9 @@ sub encode_cosekey {
     my $hash  = $pk->key2hash;
     my $curve = $EC_CURVES{ $hash->{curve_name} };
 
-    # Same bytes as earlier versions for P-256
-    return Authen::WebAuthn::_ecc_obj_to_cose($pk) if $curve->{crv} == 1;
+    # Same bytes as earlier versions for ES256
+    return Authen::WebAuthn::_ecc_obj_to_cose($pk)
+      if $curve->{crv} == 1 and $alg == -7;
 
     my $coordinate = sub {
         pack( 'H*', sprintf( '%0*s', $curve->{size} * 2, shift ) );

@@ -29,7 +29,8 @@ Unreleased
     requires
 
   [New]
-  - ES384, ES512 and EdDSA (Ed25519) credential keys
+  - ES384, ES512 and EdDSA (Ed25519) credential keys, and RFC 9864's
+    fully-specified ESP256, ESP384, ESP512 and Ed25519 identifiers
   - origin can be an arrayref of accepted origins (Frank Carnovale)
   - generate_registration_options and generate_assertion_options, which
     check their options against the WebAuthn enumerations and take hints

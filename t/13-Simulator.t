@@ -42,6 +42,12 @@ my @keys    = (
     [ "RS256", -257, $rsa_pem ],
     [ "PS256", -37,  $rsa_pem, -37 ],
     [ "EdDSA", -8,   ed25519_pem() ],
+
+    # RFC 9864's fully-specified identifiers, for the same keys
+    [ "ESP256",  -9,  ecc_pem("secp256r1"), -9 ],
+    [ "ESP384",  -51, ecc_pem("secp384r1"), -51 ],
+    [ "ESP512",  -52, ecc_pem("secp521r1"), -52 ],
+    [ "Ed25519", -19, ed25519_pem(),        -19 ],
 );
 
 sub authenticator {

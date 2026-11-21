@@ -549,7 +549,9 @@ This module only supports the "none", "packed" and "fido-u2f" attestation
 format.
 
 The supported public key algorithms are ES256, ES384, ES512, EdDSA (Ed25519),
-RS256, PS256 and RS1.
+RS256, PS256 and RS1, and RFC 9864's fully-specified ESP256, ESP384, ESP512 and
+Ed25519, which in WebAuthn mean the same as ES256, ES384, ES512 and EdDSA.
+Elliptic curve keys in compressed form are refused, as WebAuthn requires.
 
 We plan to support additional attestation formats and algorithms in the future,
 given enough time and/or sponsorship.
