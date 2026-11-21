@@ -72,6 +72,11 @@ expecting to find in registration or authentication responses. This must
 contain the scheme and port of your application, but no path
 (http://app.example.com:8080 or https://app.example.com)
 
+It can also be an arrayref of origins, all of which are accepted. An Android
+application, for instance, reports an origin derived from the key that signed
+it (C<android:apk-key-hash:...>), and a development build is not signed with
+the same key as the release.
+
 
 =method generate_registration_options
 

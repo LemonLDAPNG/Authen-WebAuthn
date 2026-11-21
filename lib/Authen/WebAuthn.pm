@@ -229,19 +229,7 @@ sub validate_registration {
         croak("Empty origin in client data");
     }
 
-    my $origins = ref $self->origin? $self->origin: [ $self->origin ];
-    my $matched_origin;
-    for my $origin (@$origins) {
-        next unless $client_data->{origin} eq $origin;
-        $matched_origin = $origin;
-    }
-    unless ( $matched_origin ) {
-        croak(  "Origin received from client data "
-              . "($client_data->{origin}) "
-              . "does not match any server origin(s) " . "("
-              . join(',', @$origins)
-              . ")" );
-    }
+    my $matched_origin = $self->_check_origin( $client_data->{origin} );
 
     # 10. Verify that the value of C.tokenBinding.status matches the state of
     # Token Binding for the TLS connection over which the assertion was
@@ -398,6 +386,21 @@ sub validate_registration {
     };
 }
 
+# Returns the configured origin that matches the one in client data
+sub _check_origin {
+    my ( $self, $client_origin ) = @_;
+
+    my $origins = ref( $self->origin ) ? $self->origin : [ $self->origin ];
+    for my $origin (@$origins) {
+        return $origin if $client_origin eq $origin;
+    }
+    croak(  "Origin received from client data "
+          . "($client_origin) "
+          . "does not match any server origin(s) " . "("
+          . join( ',', @$origins )
+          . ")" );
+}
+
 sub validate_assertion {
     my ( $self, %params ) = @_;
     my (
@@ -461,19 +464,7 @@ sub validate_assertion {
         croak("Empty origin");
     }
 
-    my $origins = ref $self->origin? $self->origin: [ $self->origin ];
-    my $matched_origin;
-    for my $origin (@$origins) {
-        next unless $client_data->{origin} eq $origin;
-        $matched_origin = $origin;
-    }
-    unless ( $matched_origin ) {
-        croak(  "Origin received from client data "
-              . "($client_data->{origin}) "
-              . "does not match any server origin(s) " . "("
-              . join(',', @$origins)
-              . ")" );
-    }
+    my $matched_origin = $self->_check_origin( $client_data->{origin} );
 
     # 14. Verify that the value of C.tokenBinding.status matches the state of
     # Token Binding for the TLS connection over which the attestation was
