@@ -179,6 +179,16 @@ subtest "Values of the wrong type" => sub {
         qr/Client data member type is not a string/,
         "Client data member"
     );
+    my $bytes_fmt = $valid->{fmt};
+    utf8::downgrade($bytes_fmt);
+    refused(
+        register_raw(
+            attestation_object => $map->( { %$valid, fmt => $bytes_fmt } )
+        ),
+        $@,
+        qr/Attestation statement format is not a text string/,
+        "An attestation statement format that is a byte string"
+    );
     refused(
         register_raw( attestation_object => pack( "H*", "bfeb" ) ),
         $@,

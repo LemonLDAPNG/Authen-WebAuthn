@@ -95,8 +95,12 @@ sub makeAttestationObject {
     my $att_stmt = $dat->{attStmt} // {};
     $att_stmt = $att_stmt->($auth_data) if ref($att_stmt) eq 'CODE';
 
+    # A text string, as CBOR::XS encodes a character string
+    my $fmt = $dat->{fmt};
+    utf8::upgrade($fmt) if defined $fmt;
+
     my $attestationObject = {
-        'fmt'      => $dat->{fmt},
+        'fmt'      => $fmt,
         'authData' => $auth_data,
         'attStmt'  => $att_stmt,
     };
