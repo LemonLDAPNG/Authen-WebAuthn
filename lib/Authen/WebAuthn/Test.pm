@@ -196,17 +196,25 @@ sub _alg_for {
 }
 
 # CBOR as authenticators encode it (CTAP2 canonical form): map keys sorted
-# shortest first, then bytewise. It is also the same in every run, which
-# CBOR::XS's encoding of a Perl hash is not. Map keys are text.
+# by their encoding, shortest first, then bytewise. It is also the same in
+# every run, which CBOR::XS's encoding of a Perl hash is not. A map key that
+# reads as an integer is a CBOR integer, as COSE labels are; others are text.
 sub _canonical_cbor {
     my ($value) = @_;
 
     if ( ref($value) eq 'HASH' ) {
-        my @keys =
-          sort { length($a) <=> length($b) or $a cmp $b } keys %$value;
-        return _cbor_head( 5, scalar @keys ) . join '', map {
-            _cbor_head( 3, length $_ ) . $_ . _canonical_cbor( $value->{$_} )
-        } @keys;
+        my %encoded = map {
+            $_ => /^-?[0-9]+\z/
+              ? _cbor_int($_)
+              : _cbor_head( 3, length $_ )
+              . $_
+        } keys %$value;
+        my @keys = sort {
+            length( $encoded{$a} ) <=> length( $encoded{$b} )
+              or $encoded{$a} cmp $encoded{$b}
+        } keys %$value;
+        return _cbor_head( 5, scalar @keys ) . join '',
+          map { $encoded{$_} . _canonical_cbor( $value->{$_} ) } @keys;
     }
     if ( ref($value) eq 'ARRAY' ) {
         return _cbor_head( 4, scalar @$value ) . join '',

@@ -571,7 +571,7 @@ subtest "tpm pubArea" => sub {
     );
     is( $name_alg, 0x000b, "... and its nameAlg" );
 
-    my $rsa_cose = CBOR::XS::encode_cbor(
+    my $rsa_cose = Authen::WebAuthn::Test::_canonical_cbor(
         { 1 => 3, 3 => -257, -1 => $n, -2 => "\x01\x00\x01" } );
     ok(
         Authen::WebAuthn::_tpm_same_key( $key, $rsa_cose ),

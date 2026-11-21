@@ -123,7 +123,9 @@ subtest "Registration" => sub {
             registration_data(
                 attestedCredentialData => {
                     credentialPublicKey =>
-                      CBOR::XS::encode_cbor( { 1 => 2, 3 => -999, -1 => 1 } )
+                      Authen::WebAuthn::Test::_canonical_cbor(
+                        { 1 => 2, 3 => -999, -1 => 1 }
+                      )
                 }
             )
         ),
@@ -150,7 +152,7 @@ subtest "Authentication" => sub {
     );
 
     my $unknown_alg = encode_base64url(
-        CBOR::XS::encode_cbor(
+        Authen::WebAuthn::Test::_canonical_cbor(
             {
                 1  =>  2,
                 3  => -999,

@@ -11,9 +11,16 @@ Unreleased
     WebAuthn Level 3 removed it; token_binding_id_b64 is ignored
 
   [Fixes]
-  - Client-supplied CBOR is decoded safely: a value tagged as a Perl
-    object made the decoder call THAW on the class it named. CBOR tags
-    are now refused
+  - Client-supplied CBOR is decoded by this module, in time and memory
+    bounded by its size. CBOR::XS calls THAW on a value tagged as a Perl
+    object, and expands string references, so that a few kilobytes
+    become gigabytes. Only the CBOR WebAuthn uses is accepted: no tags,
+    floats, indefinite lengths or duplicate map keys, and no text string
+    where bytes are expected or the reverse; COSE key types, algorithms
+    and curves must be integers
+  - An RSA credential key over 4096 bits, or with an even modulus or an
+    invalid exponent, is refused before it is read, which took up to a
+    minute for a large one. The 2048-bit minimum counts bits, not bytes
   - PS256 signatures did not verify (wrong salt length)
   - trust_anchors given as a code reference was always refused
   - Ed25519 attestation certificates were refused

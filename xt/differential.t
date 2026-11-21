@@ -39,7 +39,7 @@ my @KNOWN = (
     },
     {
         accepts => "theirs",
-        ours    => qr/^garbage after CBOR object/,
+        ours    => qr/^Trailing bytes after CBOR data/,
         why     => "py_webauthn ignores bytes after the attestation object",
     },
     {

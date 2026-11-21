@@ -11,7 +11,9 @@ use Crypt::PK::RSA;
 use Crypt::PK::Ed25519;
 use Crypt::PRNG;
 use Crypt::OpenSSL::X509 1.808;
-use CBOR::XS 1.6 ();
+use CBOR::XS 1.6      ();
+use B                 ();
+use Encode            ();
 use Types::Serialiser ();
 use URI;
 use Carp;
@@ -556,8 +558,7 @@ my $MIN_RSA_BITS = 2048;
 sub _check_credential_public_key {
     my ($cose_raw) = @_;
 
-    my $cose_key =
-      _require_map( _decode_cbor($cose_raw), "Credential public key" );
+    my $cose_key = _decode_cose_key($cose_raw);
 
     my $alg_num = $cose_key->{3} // "";
     my $alg     = $COSE_ALG->{$alg_num};
@@ -572,8 +573,7 @@ sub _check_credential_public_key {
     croak("Invalid credential public key: $@") if $@;
 
     if ( $alg->{key_type} eq "RSA" ) {
-        ( my $modulus = $cose_key->{-1} ) =~ s/^\x00+//;
-        my $bits = 8 * length($modulus);
+        my $bits = _rsa_bits( $cose_key->{-1} );
         if ( $bits < $MIN_RSA_BITS ) {
             croak("RSA key of $bits bits is too short (min: $MIN_RSA_BITS)");
         }
@@ -945,23 +945,138 @@ sub _flags_result {
     );
 }
 
-# Everything decoded here was sent by the client. A plain CBOR::XS decoder
-# turns a value tagged as a Perl object into a call to the THAW method of
-# whichever loaded class the value names. Nothing in WebAuthn is tagged, so
-# refuse every tag, which also keeps the date and bignum decoders away from
-# untrusted input.
-sub _cbor_decoder {
-    return CBOR::XS->new->validate_utf8->forbid_objects->max_size(1e6)
-      ->filter( sub { croak("Unexpected CBOR tag $_[0]") } );
-}
+# Everything decoded here was sent by the client, so it is decoded here
+# rather than by CBOR::XS, which expands string references (tags 25 and
+# 256) and shared values whatever its options say: a few bytes become
+# gigabytes. WebAuthn uses CTAP2's subset of CBOR: integers, byte and text
+# strings, arrays, maps, booleans and null, with definite lengths.
+my $CBOR_MAX_DEPTH = 16;
 
 sub _decode_cbor {
     my ($cbor_raw) = @_;
-    _require_bytes( $cbor_raw, "CBOR data" );
+    my ( $value, $length ) = _decode_cbor_prefix($cbor_raw);
+    croak("Trailing bytes after CBOR data") if $length < length $cbor_raw;
+    return $value;
+}
 
-    # CBOR::XS warns on some malformed maps before it dies on them
-    no warnings 'uninitialized';
-    return _cbor_decoder()->decode($cbor_raw);
+# The first CBOR item, and the number of bytes it took
+sub _decode_cbor_prefix {
+    my ($cbor_raw) = @_;
+    _require_bytes( $cbor_raw, "CBOR data" );
+    my $offset = 0;
+    my $value  = _cbor_item( \$cbor_raw, \$offset, 0 );
+    return ( $value, $offset );
+}
+
+sub _cbor_take {
+    my ( $data, $offset, $length ) = @_;
+    croak("CBOR data is truncated")
+      if $length > length($$data) - $$offset;
+    my $bytes = substr( $$data, $$offset, $length );
+    $$offset += $length;
+    return $bytes;
+}
+
+sub _cbor_item {
+    my ( $data, $offset, $depth ) = @_;
+    croak("CBOR data is nested too deeply") if $depth > $CBOR_MAX_DEPTH;
+
+    my $initial = ord _cbor_take( $data, $offset, 1 );
+    my ( $major, $info ) = ( $initial >> 5, $initial & 0x1f );
+
+    if ( $major == 7 ) {
+        return Types::Serialiser::false if $info == 20;
+        return Types::Serialiser::true  if $info == 21;
+        return undef                    if $info == 22;
+        croak("Unsupported CBOR simple value or float");
+    }
+
+    my $argument;
+    if ( $info < 24 ) {
+        $argument = $info;
+    }
+    elsif ( $info == 24 ) {
+        $argument = unpack( "C", _cbor_take( $data, $offset, 1 ) );
+    }
+    elsif ( $info == 25 ) {
+        $argument = unpack( "n", _cbor_take( $data, $offset, 2 ) );
+    }
+    elsif ( $info == 26 ) {
+        $argument = unpack( "N", _cbor_take( $data, $offset, 4 ) );
+    }
+    elsif ( $info == 27 ) {
+        my ( $high, $low ) = unpack( "NN", _cbor_take( $data, $offset, 8 ) );
+
+        # Beyond 2**53 a Perl number on a 32-bit build is no longer exact
+        croak("CBOR integer is too large") if $high >= 2**21;
+        $argument = $high * 2**32 + $low;
+    }
+    else {
+        croak("Indefinite-length or reserved CBOR item");
+    }
+
+    return $argument                               if $major == 0;
+    return -1 - $argument                          if $major == 1;
+    return _cbor_take( $data, $offset, $argument ) if $major == 2;
+    if ( $major == 3 ) {
+        my $text = _cbor_take( $data, $offset, $argument );
+        $text = eval { Encode::decode( "UTF-8", $text, Encode::FB_CROAK ) };
+        croak("CBOR text string is not valid UTF-8") unless defined $text;
+
+        # Marks it as text even when it is ASCII
+        utf8::upgrade($text);
+        return $text;
+    }
+    croak("Unexpected CBOR tag $argument") if $major == 6;
+
+    # Every item takes a byte at least: refuse a count the data cannot hold
+    # before looping over it
+    croak("CBOR data is truncated")
+      if $argument > length($$data) - $$offset;
+    if ( $major == 4 ) {
+        return [ map { _cbor_item( $data, $offset, $depth + 1 ) }
+              1 .. $argument ];
+    }
+
+    my %map;
+    for ( 1 .. $argument ) {
+
+        # Integer and text keys only, and since Perl hash keys are strings,
+        # no text key that reads as an integer: "3" would be the label 3
+        my $key_major = ord( substr( $$data, $$offset, 1 ) ) >> 5;
+        my $key       = _cbor_item( $data, $offset, $depth + 1 );
+        croak("Unsupported CBOR map key")
+          unless $key_major <= 1
+          or ( $key_major == 3 and $key !~ /^-?[0-9]+\z/ );
+        croak("Duplicate CBOR map key $key") if exists $map{$key};
+        $map{$key} = _cbor_item( $data, $offset, $depth + 1 );
+    }
+    return \%map;
+}
+
+sub _decode_cose_key {
+    my ($cose_raw) = @_;
+    return _check_cose_key( _decode_cbor($cose_raw) );
+}
+
+# kty, alg and crv are compared as Perl strings, where the text "-7" or
+# the bytes "-7" would read as ES256: they must have been CBOR integers,
+# which the decoder returns as numbers
+sub _check_cose_key {
+    my ($cose) = @_;
+    _require_map( $cose, "Credential public key" );
+    my @labels = ( 1, 3 );
+    push @labels, -1
+      if defined $cose->{1} and ( $cose->{1} eq "1" or $cose->{1} eq "2" );
+    for my $label (@labels) {
+        my $value = $cose->{$label};
+        next unless defined $value;
+        croak("Credential public key member $label is not an integer")
+          if ref $value
+          or
+          !( B::svref_2object( \$value )->FLAGS & ( B::SVf_IOK | B::SVf_NOK ) );
+    }
+    return $cose;
 }
 
 # The client data members compared here must be strings
@@ -983,10 +1098,22 @@ sub _decode_client_data {
     return $client_data;
 }
 
+# The decoder marks CBOR text strings as character strings
 sub _require_bytes {
     my ( $value, $name ) = @_;
     croak("$name is missing") unless defined $value;
-    croak("$name is not a byte string") if ref $value;
+    croak("$name is not a byte string")
+      if ref $value
+      or utf8::is_utf8($value);
+    return $value;
+}
+
+sub _require_text {
+    my ( $value, $name ) = @_;
+    croak("$name is missing") unless defined $value;
+    croak("$name is not a text string")
+      if ref $value
+      or !utf8::is_utf8($value);
     return $value;
 }
 
@@ -1137,7 +1264,7 @@ sub matchCertificateInList {
 # Used by u2f assertion types
 sub _getU2FKeyFromCose {
     my ($cose_key) = @_;
-    $cose_key = _decode_cbor($cose_key);
+    $cose_key = _decode_cose_key($cose_key);
 
     # TODO: do we need to support more algs?
     croak( "Unexpected COSE Alg: " . $cose_key->{3} )
@@ -1218,10 +1345,37 @@ sub parse_rsa_pem {
     return $pk;
 }
 
+# CryptX converts the key in time quadratic in its size, so a client's
+# oversized key is refused before it is read
+my $MAX_RSA_BITS           = 4096;
+my $MAX_RSA_EXPONENT_BYTES = 32;
+
+sub _rsa_bits {
+    my ($modulus) = @_;
+    $modulus =~ s/^\x00+//;
+    return 0 unless length $modulus;
+    return 8 * length($modulus) - 8 + length( sprintf( "%b", ord $modulus ) );
+}
+
 sub parse_rsa_cose {
     my ($cose_struct) = @_;
     my $n = _require_bytes( $cose_struct->{-1}, "RSA key modulus" );
     my $e = _require_bytes( $cose_struct->{-2}, "RSA key exponent" );
+    s/^\x00+// for $n, $e;
+
+    my $bits = _rsa_bits($n);
+    croak("RSA key of $bits bits is too long (max: $MAX_RSA_BITS)")
+      if $bits > $MAX_RSA_BITS;
+    croak("Invalid RSA key modulus")
+      if $bits == 0
+      or ord( substr( $n, -1 ) ) % 2 == 0;
+
+    # Odd and at least 3 (RFC 8017, section 3.1)
+    croak("Invalid RSA key exponent")
+      if length($e) == 0
+      or length($e) > $MAX_RSA_EXPONENT_BYTES
+      or ord( substr( $e, -1 ) ) % 2 == 0
+      or ( length($e) == 1 and ord($e) < 3 );
 
     my $pk = Crypt::PK::RSA->new();
 
@@ -1285,8 +1439,7 @@ sub get_verifier_for_alg {
 
 sub getPubKeyVerifier {
     my ($pubkey_cose) = @_;
-    my $cose_key =
-      _require_map( _decode_cbor($pubkey_cose), "Credential public key" );
+    my $cose_key = _decode_cose_key($pubkey_cose);
 
     my $alg_num = $cose_key->{3};
     croak("Missing algorithm in credential public key")
@@ -1316,11 +1469,8 @@ sub getCoseAlgAndLength {
     my ($cbor_raw) = @_;
 
     _require_bytes( $cbor_raw, "Credential public key" );
-    my ( $cbor, $length ) = do {
-        no warnings 'uninitialized';
-        _cbor_decoder()->decode_prefix($cbor_raw);
-    };
-    _require_map( $cbor, "Credential public key" );
+    my ( $cbor, $length ) = _decode_cbor_prefix($cbor_raw);
+    _check_cose_key($cbor);
 
     my $alg_num = $cbor->{3};
     my $alg =
@@ -1456,11 +1606,7 @@ sub getAttestationObject {
     my $decoded = decode_base64url($dat);
     my $res     = {};
     my $h       = _require_map( _decode_cbor($decoded), "Attestation object" );
-    _require_bytes( $h->{fmt}, "Attestation statement format" );
-
-    # A text string, which CBOR::XS decodes as a character string
-    croak("Attestation statement format is not a text string")
-      unless utf8::is_utf8( $h->{fmt} );
+    _require_text( $h->{fmt}, "Attestation statement format" );
     _require_bytes( $h->{authData}, "Authenticator data" );
     _require_map( $h->{attStmt}, "Attestation statement" );
     $res->{authData}    = getAuthData( $h->{authData} );
@@ -1705,7 +1851,7 @@ sub _tpm_public_area {
 sub _tpm_same_key {
     my ( $key, $cose_raw ) = @_;
 
-    my $cose = _decode_cbor($cose_raw);
+    my $cose = _decode_cose_key($cose_raw);
     return 0 unless ( $cose->{1} // "" ) eq $key->{kty};
     if ( $key->{kty} == 3 ) {
         ( my $e = $cose->{-2} // "" ) =~ s/^\0+//;
@@ -2046,7 +2192,7 @@ sub _certificate_extension {
 sub _same_public_key {
     my ( $cose_raw, $certificate_der ) = @_;
 
-    my $cose = _decode_cbor($cose_raw);
+    my $cose = _decode_cose_key($cose_raw);
     my $alg  = $COSE_ALG->{ $cose->{3} // "" }
       or croak( "Unsupported algorithm " . ( $cose->{3} // "(none)" ) );
     my $credential  = $KEY_TYPES->{ $alg->{key_type} }->{parse_cose}->($cose);

@@ -179,6 +179,17 @@ subtest "Values of the wrong type" => sub {
         qr/Client data member type is not a string/,
         "Client data member"
     );
+    my $text_auth_data = $valid->{authData};
+    utf8::upgrade($text_auth_data);    # CBOR::XS encodes it as text
+    refused(
+        register_raw(
+            attestation_object =>
+              $map->( { %$valid, authData => $text_auth_data } )
+        ),
+        $@,
+        qr/Authenticator data is not a byte string/,
+        "Authenticator data that is a text string"
+    );
     my $bytes_fmt = $valid->{fmt};
     utf8::downgrade($bytes_fmt);
     refused(
@@ -192,7 +203,7 @@ subtest "Values of the wrong type" => sub {
     refused(
         register_raw( attestation_object => pack( "H*", "bfeb" ) ),
         $@,
-        qr/corrupted CBOR data/,
+        qr/Indefinite-length or reserved CBOR item/,
         "Malformed map"
     );
 

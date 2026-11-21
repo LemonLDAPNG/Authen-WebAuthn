@@ -92,12 +92,12 @@ my $attestation_object = CBOR::XS::decode_cbor(
 $attestation_object->{fmt} = "unknown-format";
 utf8::upgrade( $attestation_object->{fmt} );    # a CBOR text string
 $android_key_params{attestation_object_b64} =
-  encode_base64url( CBOR::XS::encode_cbor($attestation_object) );
+  encode_base64url( CBOR::XS->new->text_keys(1)->encode($attestation_object) );
 
 eval { my $reg = $webauthn->validate_registration( %android_key_params, ); };
 like(
     $@,
-    qr/Unsupported attestation format during WebAuthn registration: unknown-format/,
+qr/Unsupported attestation format during WebAuthn registration: unknown-format/,
     "Validation fails on unknown attestation format"
 );
 
