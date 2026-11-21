@@ -14,6 +14,9 @@ jobs:
         perl: ["5.20", "5.26", "5.32", "5.40"]
     steps:
       - uses: actions/checkout@v4
+      # GitHub's builds of older Perls link against libnsl, which the runner
+      # no longer has, and Crypt::OpenSSL::X509's configure step needs it
+      - run: sudo apt-get update && sudo apt-get install -y libnsl-dev
       - uses: shogo82148/actions-setup-perl@v1
         with:
           perl-version: ${{ matrix.perl }}
@@ -48,9 +51,9 @@ jobs:
       - uses: shogo82148/actions-setup-perl@v1
         with:
           perl-version: "5.40"
-          install-modules-with: cpanm
-          install-modules-args: --notest
-          install-modules: Dist::Zilla
+      # Installed globally: modules in the checkout would be gathered into
+      # the distribution
+      - run: cpanm --notest Dist::Zilla
       - run: dzil authordeps --missing | cpanm --notest
       - run: dzil listdeps --missing | cpanm --notest
       - run: dzil build
