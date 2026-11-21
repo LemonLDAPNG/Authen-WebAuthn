@@ -9,7 +9,7 @@ use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
 use Crypt::OpenSSL::X509 1.808;
-use CBOR::XS;
+use CBOR::XS 1.6 ();
 use URI;
 use Carp;
 use Authen::WebAuthn::SSLeayChainVerifier;
@@ -409,6 +409,14 @@ sub validate_assertion {
     return { success => 1, signature_count => $signature_count, };
 }
 
+# Everything decoded here was sent by the client. A plain CBOR::XS decoder
+# turns a value tagged as a Perl object into a call to the THAW method of
+# whichever loaded class the value names, so use the safe one.
+sub _decode_cbor {
+    my ($cbor_raw) = @_;
+    return CBOR::XS->new_safe->decode($cbor_raw);
+}
+
 sub _ecc_obj_to_cose {
     my ($key) = @_;
 
@@ -586,7 +594,7 @@ sub matchCertificateInList {
 # Used by u2f assertion types
 sub _getU2FKeyFromCose {
     my ($cose_key) = @_;
-    $cose_key = decode_cbor($cose_key);
+    $cose_key = _decode_cbor($cose_key);
 
     # TODO: do we need to support more algs?
     croak( "Unexpected COSE Alg: " . $cose_key->{3} )
@@ -704,7 +712,7 @@ sub get_verifier_for_alg {
 
 sub getPubKeyVerifier {
     my ($pubkey_cose) = @_;
-    my $cose_key = decode_cbor($pubkey_cose);
+    my $cose_key = _decode_cbor($pubkey_cose);
 
     my $alg_num = $cose_key->{3};
     return get_verifier_for_alg( $alg_num, $cose_key, "parse_cose" );
@@ -720,7 +728,7 @@ sub getPEMPubKeyVerifier {
 sub getCoseAlgAndLength {
     my ($cbor_raw) = @_;
 
-    my ( $cbor, $length ) = CBOR::XS->new->decode_prefix($cbor_raw);
+    my ( $cbor, $length ) = CBOR::XS->new_safe->decode_prefix($cbor_raw);
 
     my $alg_num = $cbor->{3};
     my $alg     = $COSE_ALG->{$alg_num}->{name};
@@ -806,7 +814,7 @@ sub getAuthData {
         my $ext = substr( $ad, 37 + $attestedCredentialDataLength );
 
         if ($ext) {
-            $res->{extensions} = decode_cbor($ext);
+            $res->{extensions} = _decode_cbor($ext);
         }
     }
     else {
@@ -832,7 +840,7 @@ sub getAttestationObject {
     my ($dat)   = @_;
     my $decoded = decode_base64url($dat);
     my $res     = {};
-    my $h       = decode_cbor($decoded);
+    my $h       = _decode_cbor($decoded);
     $res->{authData}    = getAuthData( $h->{authData} );
     $res->{authDataRaw} = $h->{authData};
     $res->{attStmt}     = $h->{attStmt};
