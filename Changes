@@ -97,7 +97,8 @@ Unreleased
   - The test vectors of the WebAuthn specification (t/spec-vectors), run
     by t/21-Spec-test-vectors.t
   - xt/differential.t verifies the same responses, valid and corrupted,
-    with py_webauthn, and fails on any disagreement not explained
+    with py_webauthn and SimpleWebAuthn, and fails on any disagreement
+    not explained
   - xt/valgrind.t runs the tests under valgrind's memcheck when it is
     installed
   - GitHub Actions runs the tests on Perl 5.20 to 5.40, and under

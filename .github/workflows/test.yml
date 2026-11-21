@@ -44,7 +44,7 @@ jobs:
       - run: prove -lv xt/valgrind.t
 
   differential:
-    name: py_webauthn
+    name: py_webauthn and SimpleWebAuthn
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +60,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install webauthn
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --prefix "$RUNNER_TEMP/simplewebauthn" @simplewebauthn/server
       - run: prove -lv xt/differential.t
+        env:
+          NODE_PATH: ${{ runner.temp }}/simplewebauthn/node_modules
 
   dist:
     name: dzil build

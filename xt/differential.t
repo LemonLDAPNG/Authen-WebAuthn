@@ -13,59 +13,107 @@ use strict;
 use Authen::WebAuthn;
 use Authen::WebAuthn::Test;
 
-# Differential test against py_webauthn (https://github.com/duo-labs/py_webauthn):
-# the same registration and authentication responses, valid and corrupted,
-# are verified by both libraries, which must agree on every one, apart from
-# the differences listed in %KNOWN.
+# Differential test against other WebAuthn libraries: py_webauthn
+# (https://github.com/duo-labs/py_webauthn) and SimpleWebAuthn
+# (https://simplewebauthn.dev). The same registration and authentication
+# responses, valid and corrupted, are verified by this module and by each
+# library that is installed, which must agree on every one, apart from the
+# differences listed for it.
 #
 #   pip install webauthn
+#   npm install @simplewebauthn/server    # then set NODE_PATH to its
+#                                         # node_modules
 #   prove -l xt/differential.t
 #
-# DIFFERENTIAL_PYTHON names the Python to use; by default, python3.
+# DIFFERENTIAL_PYTHON and DIFFERENTIAL_NODE name the interpreters to use;
+# by default, python3 and node.
 
-# Where the two libraries differ on purpose: which side accepts, a pattern
-# for the other side's error, and why
-my @KNOWN = (
+my $registration_key_check = {
+    accepts => "theirs",
+    ours    => qr/^Invalid credential public key/,
+    why     => "Authen::WebAuthn refuses at registration a key that "
+      . "could never verify",
+};
+my $trailing_bytes = {
+    accepts => "theirs",
+    ours    => qr/^Trailing bytes after CBOR data/,
+    why     => "it ignores bytes after the attestation object",
+};
+
+# Each library, and where it differs from this module on purpose: which
+# side accepts, a pattern for the other side's error, and why
+my @LIBRARIES = (
     {
-        accepts => "ours",
-        theirs  => qr/alg "?-35/,
-        why     => "py_webauthn does not support ES384",
+        name    => "py_webauthn",
+        command => [
+            $ENV{DIFFERENTIAL_PYTHON} // "python3",
+            "xt/differential/py_webauthn_verify.py"
+        ],
+        check =>
+          [ $ENV{DIFFERENTIAL_PYTHON} // "python3", "-c", "import webauthn" ],
+        known => [
+            $registration_key_check,
+            $trailing_bytes,
+            {
+                accepts => "ours",
+                theirs  => qr/alg "?-35/,
+                why     => "it does not support ES384",
+            },
+            {
+                accepts => "theirs",
+                ours    => qr/^Attestation statement is not a map/,
+                why     => "it accepts an attestation object without attStmt "
+                  . "when fmt is none; the attestation object's syntax "
+                  . "requires it",
+            },
+            {
+                accepts => "ours",
+                theirs  => qr/AAGUID .* was not expected .*FIDO-U2F/,
+                why     => "it requires a zero AAGUID with fido-u2f "
+                  . "attestation, which the verification procedure does "
+                  . "not; the specification's own fido-u2f test vector has "
+                  . "a non-zero one",
+            },
+        ],
     },
     {
-        accepts => "theirs",
-        ours    => qr/^Invalid credential public key/,
-        why     => "Authen::WebAuthn refuses at registration a key that "
-          . "could never verify",
-    },
-    {
-        accepts => "theirs",
-        ours    => qr/^Attestation statement is not a map/,
-        why     => "py_webauthn accepts an attestation object without attStmt "
-          . "when fmt is none; the attestation object's syntax requires it",
-    },
-    {
-        accepts => "theirs",
-        ours    => qr/^Trailing bytes after CBOR data/,
-        why     => "py_webauthn ignores bytes after the attestation object",
-    },
-    {
-        accepts => "ours",
-        theirs  => qr/AAGUID .* was not expected .*FIDO-U2F/,
-        why     => "py_webauthn requires a zero AAGUID with fido-u2f "
-          . "attestation, which the verification procedure does not; the "
-          . "specification's own fido-u2f test vector has a non-zero one",
+        name    => "SimpleWebAuthn",
+        command => [
+            $ENV{DIFFERENTIAL_NODE} // "node",
+            "xt/differential/simplewebauthn_verify.js"
+        ],
+        check => [
+            $ENV{DIFFERENTIAL_NODE} // "node", "-e",
+            "require('\@simplewebauthn/server')"
+        ],
+        known => [
+            $registration_key_check,
+            $trailing_bytes,
+            {
+                accepts => "theirs",
+                ours    => qr/^CBOR data is truncated/,
+                why => "it reads authData as the bytes that remain when its "
+                  . "declared length runs past the end of the attestation "
+                  . "object",
+            },
+            {
+                accepts => "theirs",
+                ours    => qr/failed to read X509 certificate/,
+                why     => "it reads a certificate whose outer SEQUENCE tag "
+                  . "has been changed, which is not DER",
+            },
+        ],
     },
 );
 
-my $python = $ENV{DIFFERENTIAL_PYTHON} // "python3";
-my $script = "xt/differential/py_webauthn_verify.py";
-{
-    my $pid = eval {
-        open3( my $in, my $out, undef, $python, "-c", "import webauthn" );
-    };
-    my $ok = $pid && do { waitpid( $pid, 0 ); $? == 0 };
-    plan skip_all => "$python with py_webauthn is not available" unless $ok;
+sub available {
+    my ($command) = @_;
+    my $pid = eval { open3( my $in, my $out, undef, @$command ) };
+    return $pid && do { waitpid( $pid, 0 ); $? == 0 };
 }
+@LIBRARIES = grep { available( $_->{check} ) } @LIBRARIES;
+plan skip_all => "Neither py_webauthn nor SimpleWebAuthn is available"
+  unless @LIBRARIES;
 
 sub pem {
     my ($name) = @_;
@@ -128,8 +176,7 @@ for my $name ( sort keys %keys ) {
     }
 }
 
-# Seeded per case: an ECDSA signature's length varies from run to run,
-# and that must not move the corruption of every case after it
+# Seeded per case, so that adding a case changes no other
 sub corrupt {
     my ( $bytes, $case ) = @_;
     srand( 20261121 + $case );
@@ -253,53 +300,66 @@ print $fh encode_json(
     ]
 );
 close $fh;
-my $theirs = decode_json(`$python $script < $input`);
-is( scalar @$theirs, scalar @cases, "py_webauthn verified every case" );
 
-my ( $agree, %known, @disagree ) = (0);
-CASE: for my $i ( 0 .. $#cases ) {
-    my ( $ours, $other ) = ( $cases[$i]{ours}, $theirs->[$i] );
-    if ( !!$ours->{ok} == !!$other->{ok} ) {
-        $agree++;
-        next;
-    }
-    for my $known (@KNOWN) {
-        my ( $accepts, $refuses ) =
-          $known->{accepts} eq "ours" ? ( $ours, $other ) : ( $other, $ours );
-        my $pattern =
-          $known->{ $known->{accepts} eq "ours" ? "theirs" : "ours" };
-        if ( $accepts->{ok} and $refuses->{error} =~ $pattern ) {
-            $known{ $known->{why} }++;
-            next CASE;
+for my $library (@LIBRARIES) {
+    subtest $library->{name} => sub { compare( $library, $input ) };
+}
+
+sub compare {
+    my ( $library, $input ) = @_;
+    my $name = $library->{name};
+
+    my $command = join " ", map { quotemeta } @{ $library->{command} };
+    my $theirs  = decode_json(`$command < $input`);
+    is( scalar @$theirs, scalar @cases, "$name verified every case" );
+
+    my ( $agree, %known, @disagree ) = (0);
+  CASE: for my $i ( 0 .. $#cases ) {
+        my ( $ours, $other ) = ( $cases[$i]{ours}, $theirs->[$i] );
+        if ( !!$ours->{ok} == !!$other->{ok} ) {
+            $agree++;
+            next;
         }
+        for my $known ( @{ $library->{known} } ) {
+            my ( $accepts, $refuses ) =
+              $known->{accepts} eq "ours"
+              ? ( $ours, $other )
+              : ( $other, $ours );
+            my $pattern =
+              $known->{ $known->{accepts} eq "ours" ? "theirs" : "ours" };
+            if ( $accepts->{ok} and $refuses->{error} =~ $pattern ) {
+                $known{ $known->{why} }++;
+                next CASE;
+            }
+        }
+        push @disagree, sprintf "%s: ours %s, %s %s",
+          $cases[$i]{label},
+          $ours->{ok} ? "accepts" : "refuses ($ours->{error})",
+          $name,
+          $other->{ok} ? "accepts" : "refuses ($other->{error})";
     }
-    push @disagree, sprintf "%s: ours %s, py_webauthn %s",
-      $cases[$i]{label},
-      $ours->{ok}  ? "accepts" : "refuses ($ours->{error})",
-      $other->{ok} ? "accepts" : "refuses ($other->{error})";
-}
-diag(
-        scalar(@cases)
-      . " cases, $agree agree, "
-      . sum0( values %known )
-      . " differ as expected, "
-      . scalar(@disagree)
-      . " disagree" );
-diag("  $known{$_} because $_") for sort keys %known;
+    diag(
+            scalar(@cases)
+          . " cases, $agree agree, "
+          . sum0( values %known )
+          . " differ as expected, "
+          . scalar(@disagree)
+          . " disagree" );
+    diag("  $known{$_} because $_") for sort keys %known;
 
-# For a closer look at the cases
-if ( $ENV{DIFFERENTIAL_DUMP} ) {
-    open my $dump, ">", $ENV{DIFFERENTIAL_DUMP}
-      or die "$ENV{DIFFERENTIAL_DUMP}: $!";
-    print $dump encode_json(
-        [
-            map {
-                { %{ $cases[$_] }, theirs => $theirs->[$_] }
-            } 0 .. $#cases
-        ]
-    );
+    # For a closer look at the cases
+    if ( my $dump = $ENV{DIFFERENTIAL_DUMP} ) {
+        open my $fh, ">", "$dump.$name" or die "$dump.$name: $!";
+        print $fh encode_json(
+            [
+                map {
+                    { %{ $cases[$_] }, theirs => $theirs->[$_] }
+                } 0 .. $#cases
+            ]
+        );
+    }
+    diag($_) for @disagree;
+    ok( !@disagree, "$name and Authen::WebAuthn agree on every case" );
 }
-diag($_) for @disagree;
-ok( !@disagree, "Both libraries agree on every case" );
 
 done_testing();
