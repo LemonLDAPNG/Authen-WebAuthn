@@ -180,14 +180,14 @@ sub _build_alg {
     return $curve->{alg};
 }
 
-# Just enough CBOR for a COSE_Key with integer labels
+# Just enough CBOR for a COSE_Key: its labels and algorithm identifiers fit in
+# 16 bits
 sub _cbor_int {
     my ($n) = @_;
     my ( $major, $value ) = $n < 0 ? ( 0x20, -1 - $n ) : ( 0x00, $n );
     return pack( 'C', $major + $value ) if $value < 24;
     return pack( 'CC', $major + 24, $value ) if $value < 256;
-    return pack( 'Cn', $major + 25, $value ) if $value < 65536;
-    return pack( 'CN', $major + 26, $value );
+    return pack( 'Cn', $major + 25, $value );
 }
 
 sub _cbor_bytes {

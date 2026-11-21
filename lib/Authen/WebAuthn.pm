@@ -243,7 +243,9 @@ sub validate_registration {
     my $attestation_object = getAttestationObject($attestation_object_b64);
     my $authenticator_data = $attestation_object->{authData};
 
+    # uncoverable branch true note:getAttestationObject requires authenticator data
     unless ($authenticator_data) {
+        # uncoverable statement
         croak("Authenticator data not found in attestation object");
     }
 
@@ -330,8 +332,11 @@ sub validate_registration {
     };
     croak( "Failed to validate attestation: " . $@ ) if ($@);
 
+    # uncoverable branch true note:attestation functions croak rather than fail
     unless ( $attestation_result->{success} == 1 ) {
+        # uncoverable statement
         croak(
+            # uncoverable statement
             "Failed to validate attestation: " . $attestation_result->{error} );
     }
 
@@ -429,10 +434,8 @@ my $MIN_RSA_BITS = 2048;
 sub _check_credential_public_key {
     my ($cose_raw) = @_;
 
-    my $cose_key = _decode_cbor($cose_raw);
-    unless ( ref($cose_key) eq "HASH" ) {
-        croak("Credential public key is not a COSE key");
-    }
+    my $cose_key =
+      _require_map( _decode_cbor($cose_raw), "Credential public key" );
 
     my $alg_num = $cose_key->{3} // "";
     my $alg     = $COSE_ALG->{$alg_num};
@@ -656,7 +659,9 @@ sub _ecc_obj_to_cose {
     my ($key) = @_;
 
     $key = $key->key2hash;
+    # uncoverable branch true note:only ever called with P-256 keys
     unless ( $key->{curve_name} eq "secp256r1" ) {
+        # uncoverable statement
         croak "Invalid ECC curve: " . $key->{curve_name};
     }
 
@@ -722,7 +727,9 @@ sub check_attestation_trust {
     #obtained in Step 20 may be the same).
 
     my $attn_cert = $attestation_result->{trust_path}->[0];
+    # uncoverable branch true note:Basic attestation always has a certificate
     unless ($attn_cert) {
+        # uncoverable statement
         croak("Missing attestation certificate");
     }
 
@@ -900,7 +907,9 @@ sub get_verifier_for_alg {
 
     my $key_type        = $alg_config->{key_type};
     my $key_type_config = $KEY_TYPES->{$key_type};
+    # uncoverable branch true note:every algorithm in COSE_ALG has a key type
     unless ($key_type_config) {
+        # uncoverable statement
         croak "Unsupported key type $key_type";
     }
 
@@ -912,7 +921,9 @@ sub get_verifier_for_alg {
 
     # Get key
     my $public_key = $key_function->($key_data);
+    # uncoverable branch true note:parse functions croak rather than return false
     unless ($public_key) {
+        # uncoverable statement
         croak "Could not parse public key";
     }
 
