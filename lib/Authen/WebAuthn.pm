@@ -186,6 +186,21 @@ sub generate_registration_options {
     }
     _check_option_values( \%params );
 
+    # Identifiers are up to 32 printable ASCII characters, without " or \
+    my $formats = $params{attestation_formats};
+    for my $format (
+        defined $formats
+        ? @{ _require_list( $formats, "attestation_formats" ) }
+        : ()
+      )
+    {
+        unless ( _is_string($format)
+            and $format =~ /\A[\x21\x23-\x5b\x5d-\x7e]{1,32}\z/ )
+        {
+            croak( "Invalid attestation_formats: " . ( $format // "undef" ) );
+        }
+    }
+
     my $algs = $params{allowed_algs};
     $algs = $DEFAULT_ALGS unless ref($algs) eq "ARRAY" and @$algs;
     for my $alg (@$algs) {
@@ -203,6 +218,7 @@ sub generate_registration_options {
         pubKeyCredParams =>
           [ map { { type => "public-key", alg => $_ + 0 } } @$algs ],
         attestation        => $params{attestation} // "none",
+        ( $formats && @$formats ? ( attestationFormats => [@$formats] ) : () ),
         excludeCredentials =>
           _credential_descriptors( $params{exclude_credentials} ),
         authenticatorSelection => {

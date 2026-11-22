@@ -149,6 +149,12 @@ to C<validate_registration>.
 The attestation conveyance preference: C<none> (the default), C<indirect>,
 C<direct> or C<enterprise>.
 
+=item attestation_formats
+
+An arrayref of attestation statement format identifiers, such as
+C<packed> and C<tpm>, from most to least preferred. The authenticator may
+use another. Omitted by default, which means no preference.
+
 =item exclude_credentials
 
 An arrayref of the credentials the user already has, so that the same
@@ -184,8 +190,9 @@ passed to the browser as given. Omitted by default.
 =back
 
 Values outside the ones listed above for C<requested_uv>, C<attestation>,
-C<resident_key>, C<authenticator_attachment> and C<hints>, and a C<timeout>
-that is not a positive whole number, make this method croak.
+C<resident_key>, C<authenticator_attachment> and C<hints>, a C<timeout>
+that is not a positive whole number, and an C<attestation_formats> item that
+is not a valid identifier make this method croak.
 
 =method generate_assertion_options
 

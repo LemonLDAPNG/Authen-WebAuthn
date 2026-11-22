@@ -259,6 +259,23 @@ subtest "Options are checked" => sub {
         qr/extensions must be a HASH reference/,
         "Extensions that are not a map"
     );
+    $refused->(
+        $registration,
+        { %required, attestation_formats => "packed" },
+        qr/attestation_formats must be an ARRAY reference/,
+        "Attestation formats that are not a list"
+    );
+
+    for my $format ( "", "x" x 33, 'a"b', 'a\\b', "a b", "\x{e9}", ["packed"] )
+    {
+        $refused->(
+            $registration,
+            { %required, attestation_formats => [ "packed", $format ] },
+            qr/Invalid attestation_formats/,
+            "An attestation format of "
+              . ( ref $format ? "a list" : "'$format'" )
+        );
+    }
 };
 
 subtest "Optional options" => sub {
@@ -280,6 +297,20 @@ subtest "Optional options" => sub {
         "requireResidentKey is set when a resident key is required"
     );
     is_deeply( $options->{hints}, [ "client-device", "hybrid" ], "Hints" );
+    ok(
+        !exists $options->{attestationFormats},
+        "attestationFormats is omitted unless given"
+    );
+    is_deeply(
+        $rp->generate_registration_options(
+            rp_name             => "Example",
+            user_id             => "user-42",
+            user_name           => "alice",
+            attestation_formats => [qw(tpm packed)],
+        )->{attestationFormats},
+        [qw(tpm packed)],
+        "attestationFormats, in order of preference"
+    );
     is_deeply( $options->{extensions},
         { credProps => JSON::true }, "Extensions" );
     like( encode_json($options), qr/"requireResidentKey":true/,
