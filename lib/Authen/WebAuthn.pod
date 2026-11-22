@@ -745,6 +745,14 @@ Ed25519, which in WebAuthn mean the same as ES256, ES384, ES512 and EdDSA.
 Ed448 is supported too, as RFC 9864's Ed448.
 Elliptic curve keys in compressed form are refused, as WebAuthn requires.
 
+Client-supplied CBOR is refused if it has duplicate map keys, tags,
+indefinite lengths or floats, which could make two decoders read it
+differently. It is not required to be in CTAP2 canonical form (map keys in
+order, numbers in their shortest encoding), which WebAuthn Level 3, section
+2.4, says decoders should refuse: neither changes what a response means, the
+signatures cover the bytes as sent, and some clients have sent attestation
+statements with their keys out of order.
+
 We plan to support additional attestation formats and algorithms in the future,
 given enough time and/or sponsorship.
 
