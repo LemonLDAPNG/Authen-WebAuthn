@@ -1,4 +1,5 @@
 use Test::More;
+use Crypt::OpenSSL::X509;
 use Crypt::PK::ECC;
 use Crypt::PK::Ed25519;
 use Crypt::PK::Ed448;
@@ -268,6 +269,34 @@ subtest "Refusals tested directly" => sub {
         qr/^Invalid id-fido-gen-ce-aaguid extension format/,
         "An AAGUID extension that is not a 16-byte OCTET STRING"
     );
+};
+
+subtest "Early Yubico certificates with unused signature bits" => sub {
+    my ($security_key) = grep { $_->{name} eq "RealExamples/SecurityKey" } @{
+        decode_json(
+            do { local ( @ARGV, $/ ) = "t/real-devices/fixtures.json"; <> }
+        )
+    };
+    my $object = Authen::WebAuthn::_decode_cbor(
+        decode_base64url( $security_key->{attestation_object_b64} ) );
+    my $der = $object->{attStmt}->{x5c}->[0];
+
+    my $fixed = Authen::WebAuthn::_fix_signature_unused_bits($der);
+    is( length $fixed, length $der, "The length is kept" );
+    is( ord substr( $der,   -257, 1 ), 2, "The certificate says 2 bits" );
+    is( ord substr( $fixed, -257, 1 ), 0, "The fixed one says none" );
+    is(
+        substr( $fixed, 0, -257 ) . substr( $fixed, -256 ),
+        substr( $der,   0, -257 ) . substr( $der,   -256 ),
+        "Nothing else changes"
+    );
+
+    my $other = Crypt::OpenSSL::X509->new_from_file("t/pki/packed-p256.pem")
+      ->as_string(Crypt::OpenSSL::X509::FORMAT_ASN1);
+    is( Authen::WebAuthn::_fix_signature_unused_bits($other),
+        $other, "Other certificates are left alone" );
+    is( Authen::WebAuthn::_fix_signature_unused_bits("x"),
+        "x", "So is anything that is not a certificate" );
 };
 
 done_testing();

@@ -1362,7 +1362,8 @@ sub check_attestation_trust {
     #itself an acceptable certificate (i.e., it and the root certificate
     #obtained in Step 20 may be the same).
 
-    my $attn_cert = $attestation_result->{trust_path}->[0];
+    my $attn_cert =
+      _fix_signature_unused_bits( $attestation_result->{trust_path}->[0] );
 
     # uncoverable branch true note:Basic attestation always has a certificate
     unless ($attn_cert) {
@@ -1927,8 +1928,24 @@ sub attest_packed_x5c {
     }
 }
 
-# If the attestation certificate has an id-fido-gen-ce-aaguid extension,
-# it must match the AAGUID in the authenticator data
+# These early Yubico U2F attestation certificates say their signature has
+# unused bits, which OpenSSL 1.1 and later refuse. Yubico's libraries set
+# the count to 0, as here.
+my %UNUSED_BITS_CERTIFICATES = map { ( "CN=Yubico U2F EE Serial $_" => 1 ) }
+  qw(776137165 1086591525 1973679733 13503277888 13831167861 14803321578);
+
+sub _fix_signature_unused_bits {
+    my ($der) = @_;
+    my $x509 = eval { _read_certificate($der) } or return $der;
+
+    # uncoverable condition right note:each has a 2048-bit RSA signature
+    return $der
+      unless $UNUSED_BITS_CERTIFICATES{ $x509->subject }
+      and substr( $der, -261, 4 ) eq "\x03\x82\x01\x01";
+    substr( my $fixed = $der, -257, 1 ) = "\0";
+    return $fixed;
+}
+
 # A DER certificate, with nothing after it
 sub _read_certificate {
     my ($der) = @_;
@@ -1940,6 +1957,8 @@ sub _read_certificate {
     return $x509;
 }
 
+# If the attestation certificate has an id-fido-gen-ce-aaguid extension,
+# it must match the AAGUID in the authenticator data
 sub _check_aaguid_extension {
     my ( $x509, $authenticator_data ) = @_;
 

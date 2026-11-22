@@ -45,6 +45,10 @@ Unreleased
   - fido-u2f attestation must carry exactly one certificate, and an
     id-fido-gen-ce-aaguid extension marked critical is refused
   - Bytes after a DER attestation certificate are refused
+  - The attestation of six early Yubico U2F keys, among them the first
+    Security Key by Yubico, chains to Yubico's root. Their
+    certificates give their signature unused bits, which OpenSSL 1.1 and
+    later refuse; as Yubico's own libraries do, the count is read as 0
 
   [New]
   - ES384, ES512 and EdDSA (Ed25519) credential keys, and RFC 9864's
@@ -103,6 +107,10 @@ Unreleased
     not explained
   - xt/valgrind.t runs the tests under valgrind's memcheck when it is
     installed
+  - t/24-Real-devices.t verifies 69 registrations and assertions from
+    real authenticators (Apple, Windows Hello and other TPMs, Android,
+    YubiKeys), taken from py_webauthn's and java-webauthn-server's
+    tests, with their chains checked against the published roots
   - Every croak and die was disabled in turn, and a test added for each
     one no test noticed, apart from the guards no input can reach
   - GitHub Actions runs the tests on Perl 5.20 to 5.40, with JSON::XS and
