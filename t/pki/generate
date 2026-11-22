@@ -107,4 +107,47 @@ $tpm_san"
 cert tpm-no-bc   p256 "/" root "$tpm_eku
 $tpm_san"
 
+# A FIDO Metadata Service: a root, a CA publishing CRLs, two BLOB signers
+# and a signer the CA has revoked. t/mds.pl signs BLOBs with them.
+#   t/pki/generate mds
+if [ "$#" -eq 0 ] || [[ "$only" == *" mds "* ]]; then
+    rm -f -- mds-*.pem mds-*.crl
+    key mds-root p256
+    openssl req -x509 -new -key mds-root-key.pem -days $days \
+        -subj "/C=US/O=Authen-WebAuthn Tests/CN=Test Metadata Root" \
+        -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" -out mds-root.pem
+    cdp="crlDistributionPoints=URI:http://mds.test/crl"
+    only=" mds-ca mds-signer mds-signer-rsa mds-revoked "
+    cert mds-ca p256 "/C=US/O=Authen-WebAuthn Tests/CN=Test Metadata CA" \
+        mds-root "$ca
+$cdp/root.crl"
+    for signer in mds-signer:p256 mds-signer-rsa:rsa mds-revoked:p256; do
+        cert "${signer%:*}" "${signer#*:}" \
+            "/C=US/O=Authen-WebAuthn Tests/CN=Test Metadata ${signer%:*}" \
+            mds-ca "$leaf
+$cdp/ca.crl"
+    done
+
+    # openssl ca keeps its state in files
+    db=$(mktemp -d)
+    crl() {
+        local issuer=$1 out=$2
+        : >"$db/index.txt"
+        printf '[ca]\ndefault_ca=x\n[x]\ndatabase=%s\ndefault_md=sha256\n' \
+            "$db/index.txt" >"$db/conf"
+        shift 2
+        for revoked in "$@"; do
+            openssl ca -config "$db/conf" -cert "$issuer.pem" \
+                -keyfile "$issuer-key.pem" -revoke "$revoked.pem" 2>/dev/null
+        done
+        openssl ca -config "$db/conf" -gencrl -crldays $days \
+            -cert "$issuer.pem" -keyfile "$issuer-key.pem" -out "$out" \
+            2>/dev/null
+    }
+    crl mds-root mds-root.crl
+    crl mds-ca mds-ca.crl mds-revoked
+    rm -rf "$db"
+fi
+
 rm -f -- *.srl

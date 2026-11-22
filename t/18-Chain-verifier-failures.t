@@ -66,4 +66,65 @@ for my $function ( sort keys %failures ) {
     );
 }
 
+# The same with CRLs, for the calls only they make
+sub crl {
+    my ($name) = @_;
+    open my $fh, '<', "t/pki/$name" or die "t/pki/$name: $!";
+    local $/;
+    my $pem = <$fh>;
+    $pem =~ s/-----[^-]+-----//g;
+    require MIME::Base64;
+    return MIME::Base64::decode_base64($pem);
+}
+my @crl_chain = (
+    [ pem("mds-root") ],
+    der("mds-signer"),
+    [ der("mds-ca") ],
+    [ crl("mds-root.crl"), crl("mds-ca.crl") ],
+);
+
+sub verify_crls {
+    return Authen::WebAuthn::SSLeayChainVerifier::verify_chain(@crl_chain);
+}
+
+is_deeply( verify_crls(), { result => 1 }, "The chain verifies with CRLs" );
+
+my $calls        = 0;
+my %crl_failures = (
+    d2i_X509_CRL_bio   => [ sub { 0 }, qr/Could not parse CRL/ ],
+    X509_STORE_add_crl => [ sub { 0 }, qr/Could not add CRL to store/ ],
+
+    # After the BIOs for the three certificates
+    BIO_new => [
+        do {
+            my $real = \&Net::SSLeay::BIO_new;
+            sub { ++$calls > 3 ? 0 : $real->(@_) }
+        },
+        qr/Could not allocate new BIO/
+    ],
+);
+for my $function ( sort keys %crl_failures ) {
+    my ( $replacement, $message ) = @{ $crl_failures{$function} };
+    $calls = 0;
+    my $result = do {
+        no strict 'refs';
+        no warnings 'redefine';
+        local *{"Net::SSLeay::$function"} = $replacement;
+        verify_crls();
+    };
+    is( $result->{result}, 0, "$function failing fails verification" );
+    like( $result->{message}, $message, "... and says why" );
+    is_deeply( verify_crls(), { result => 1 },
+        "... and verification recovers" );
+}
+
+{
+    local $crl_chain[3] = [ crl("mds-root.crl") . "x", crl("mds-ca.crl") ];
+    like(
+        verify_crls()->{message},
+        qr/Could not parse CRL/,
+        "A CRL with bytes after it"
+    );
+}
+
 done_testing();

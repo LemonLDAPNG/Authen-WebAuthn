@@ -9,6 +9,10 @@ Net::SSLeay::initialize();
 
 our $verification_time;
 
+# From OpenSSL's x509_vfy.h; Net::SSLeay does not export them
+my $X509_V_FLAG_CRL_CHECK     = 0x4;
+my $X509_V_FLAG_CRL_CHECK_ALL = 0x8;
+
 # Parse PEM data into a X509 structure
 # The returned structure must be freed
 sub getX509 {
@@ -159,8 +163,39 @@ sub _get_context {
     }
 }
 
+# Parse a DER CRL; the returned structure must be freed
+sub _get_crl {
+    my ($der) = @_;
+
+    my $bio = Net::SSLeay::BIO_new( Net::SSLeay::BIO_s_mem() )
+      or die "Could not allocate new BIO";
+    Net::SSLeay::BIO_write( $bio, $der );
+    my $crl      = Net::SSLeay::d2i_X509_CRL_bio($bio);
+    my $trailing = $crl && Net::SSLeay::BIO_pending($bio) > 0;
+    Net::SSLeay::BIO_free($bio);
+    Net::SSLeay::X509_CRL_free($crl) if $trailing;
+    die "Could not parse CRL" unless $crl and !$trailing;
+    return $crl;
+}
+
+# With CRLs, every certificate of the chain must have one, from its issuer,
+# that does not list it
+sub _add_crls {
+    my ( $trust_store, $crl_list ) = @_;
+
+    for my $der (@$crl_list) {
+        my $crl = _get_crl($der);
+        my $rv  = Net::SSLeay::X509_STORE_add_crl( $trust_store, $crl );
+        Net::SSLeay::X509_CRL_free($crl);
+        die "Could not add CRL to store" if $rv == 0;
+    }
+    Net::SSLeay::X509_STORE_set_flags( $trust_store,
+        $X509_V_FLAG_CRL_CHECK | $X509_V_FLAG_CRL_CHECK_ALL );
+    return;
+}
+
 sub verify_chain {
-    my ( $trusted_list, $target, $untrusted_list ) = @_;
+    my ( $trusted_list, $target, $untrusted_list, $crl_list ) = @_;
 
     my ( $to_verify, @trusted, @untrusted, $trust_store, $chain, $context );
     my $result = { result => 0 };
@@ -173,8 +208,9 @@ sub verify_chain {
         @trusted     = _get_x509_list( $trusted_list, 1 );
         @untrusted   = _get_x509_list($untrusted_list);
         $trust_store = _get_trust_store(@trusted);
-        $chain       = _get_stack(@untrusted);
-        $context     = _get_context( $trust_store, $to_verify, $chain );
+        _add_crls( $trust_store, $crl_list ) if $crl_list;
+        $chain   = _get_stack(@untrusted);
+        $context = _get_context( $trust_store, $to_verify, $chain );
 
         my $rv    = Net::SSLeay::X509_verify_cert($context);
         my $error = Net::SSLeay::X509_STORE_CTX_get_error($context);
