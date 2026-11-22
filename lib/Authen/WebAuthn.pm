@@ -145,6 +145,7 @@ my $DER_CONTEXT     = 0xa0;    # context-specific, constructed (explicit)
 my %DER             = (
     INTEGER      => [ 0x00,             2 ],
     OCTET_STRING => [ 0x00,             4 ],
+    OID          => [ 0x00,             6 ],
     SEQUENCE     => [ $DER_CONSTRUCTED, 16 ],
     SET          => [ $DER_CONSTRUCTED, 17 ],
 );
@@ -2105,12 +2106,24 @@ sub _tpm_check_cert_requirements {
     croak "Missing Subject Alternative Name" unless defined $san;
     my %tpm_attributes;
     my ( $class, $number, $names ) = _der_read($san);
+    croak "Invalid Subject Alternative Name"
+      unless _der_is( $class, $number, "SEQUENCE" );
     for my $name ( _der_read_all($names) ) {
         next unless $name->[0] == $DER_CONTEXT and $name->[1] == 4;
-        my ( undef, undef, $rdns ) = _der_read( $name->[2] );
+
+        # A Name: a SEQUENCE of SETs of SEQUENCEs that start with an OID
+        my ( $name_class, $name_number, $rdns ) = _der_read( $name->[2] );
+        croak "Invalid Subject Alternative Name"
+          unless _der_is( $name_class, $name_number, "SEQUENCE" );
         for my $rdn ( _der_read_all($rdns) ) {
+            croak "Invalid Subject Alternative Name"
+              unless _der_is( $rdn->[0], $rdn->[1], "SET" );
             for my $attribute ( _der_read_all( $rdn->[2] ) ) {
                 my ($type) = _der_read_all( $attribute->[2] );
+                croak "Invalid Subject Alternative Name"
+                  unless _der_is( $attribute->[0], $attribute->[1], "SEQUENCE" )
+                  and $type
+                  and _der_is( $type->[0], $type->[1], "OID" );
                 $tpm_attributes{ unpack( "H*", $type->[2] ) } = 1;
             }
         }
@@ -2123,9 +2136,15 @@ sub _tpm_check_cert_requirements {
     # Extended Key Usage: tcg-kp-AIKCertificate (2.23.133.8.3)
     my $eku = _certificate_extension( $x509, "2.5.29.37" );
     croak "Missing Extended Key Usage" unless defined $eku;
-    my ( undef, undef, $usages ) = _der_read($eku);
-    unless ( grep { unpack( "H*", $_->[2] ) eq "6781050803" }
-        _der_read_all($usages) )
+    my ( $eku_class, $eku_number, $usages ) = _der_read($eku);
+    croak "Invalid Extended Key Usage"
+      unless _der_is( $eku_class, $eku_number, "SEQUENCE" );
+    unless (
+        grep {
+            _der_is( $_->[0], $_->[1], "OID" )
+              and unpack( "H*", $_->[2] ) eq "6781050803"
+        } _der_read_all($usages)
+      )
     {
         croak "Extended Key Usage is not tcg-kp-AIKCertificate";
     }

@@ -481,6 +481,90 @@ subtest "tpm certificate requirements" => sub {
     }
 };
 
+subtest "tpm certificate names" => sub {
+
+    # The AIK certificate, with its Subject Alternative Name or Extended Key
+    # Usage replaced
+    {
+
+        package ReplacedExtensions;
+
+        sub new {
+            my ( $class, $x509, %values ) = @_;
+            return bless { x509 => $x509, values => \%values }, $class;
+        }
+        sub version      { $_[0]->{x509}->version }
+        sub subject_name { $_[0]->{x509}->subject_name }
+
+        sub extensions_by_oid {
+            my ($self) = @_;
+            return {
+                %{ $self->{x509}->extensions_by_oid },
+                map {
+                    $_ =>
+                      bless { value => "#"
+                          . uc unpack( "H*", $self->{values}->{$_} ) },
+                      "ReplacedExtension"
+                } keys %{ $self->{values} }
+            };
+        }
+
+        package ReplacedExtension;
+        sub value { $_[0]->{value} }
+    }
+    my $aik   = Crypt::OpenSSL::X509->new_from_string( pem("tpm-aik") );
+    my $check = sub {
+        my (%values) = @_;
+        return scalar eval {
+            Authen::WebAuthn::_tpm_check_cert_requirements(
+                ReplacedExtensions->new( $aik, %values ) );
+            1;
+        };
+    };
+
+    my $oid = sub { der( "\x06", pack "H*", shift ) };
+    my $attribute =
+      sub { der( "\x31", der( "\x30", $oid->(shift) . der( "\x0c", "x" ) ) ) };
+    my $directory_name =
+      sub { der( "\x30", der( "\xa4", der( "\x30", join "", @_ ) ) ) };
+    my $san = $directory_name->( map { $attribute->("678105020$_") } 1 .. 3 );
+    ok( $check->( "2.5.29.17" => $san ), "A valid name, built here" )
+      or diag($@);
+
+    my %invalid = (
+        "A name that is not a SEQUENCE" => der( "\x31", substr( $san, 2 ) ),
+        "A directoryName that is not a SEQUENCE" =>
+          der( "\x30", der( "\xa4", der( "\x31", "" ) ) ),
+        "An RDN that is not a SET" => $directory_name->( der( "\x30", "" ) ),
+        "An attribute that is not a SEQUENCE" =>
+          $directory_name->( der( "\x31", der( "\x31", "" ) ) ),
+        "An empty attribute" =>
+          $directory_name->( der( "\x31", der( "\x30", "" ) ) ),
+        "An attribute type that is not an OID" => $directory_name->(
+            der(
+                "\x31", der( "\x30", der( "\x04", pack "H*", "6781050201" ) )
+            )
+        ),
+    );
+    for my $name ( sort keys %invalid ) {
+        refused( $check->( "2.5.29.17" => $invalid{$name} ),
+            qr/Invalid Subject Alternative Name/, $name );
+    }
+
+    refused(
+        $check->( "2.5.29.37" => der( "\x31", $oid->("6781050803") ) ),
+        qr/Invalid Extended Key Usage/,
+        "An Extended Key Usage that is not a SEQUENCE"
+    );
+    refused(
+        $check->(
+            "2.5.29.37" => der( "\x30", der( "\x04", pack "H*", "6781050803" ) )
+        ),
+        qr/Extended Key Usage is not tcg-kp-AIKCertificate/,
+        "A usage that is not an OID"
+    );
+};
+
 subtest "tpm certInfo" => sub {
     my $tpm = registration("tpm-es256");
     my ( undef, $name_alg ) =

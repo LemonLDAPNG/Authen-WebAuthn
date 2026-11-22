@@ -45,6 +45,10 @@ Unreleased
   - fido-u2f attestation must carry exactly one certificate, and an
     id-fido-gen-ce-aaguid extension marked critical is refused
   - Bytes after a DER attestation certificate are refused
+  - A TPM attestation certificate's Subject Alternative Name and Extended
+    Key Usage must have the structure X.509 gives them: a name whose
+    parts are not a SEQUENCE of SETs of attributes, or a usage that is
+    not an OBJECT IDENTIFIER, was read anyway
   - The attestation of six early Yubico U2F keys, among them the first
     Security Key by Yubico, chains to Yubico's root. Their
     certificates give their signature unused bits, which OpenSSL 1.1 and
