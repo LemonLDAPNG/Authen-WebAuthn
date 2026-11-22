@@ -8,6 +8,7 @@ use Carp;
 use Crypt::OpenSSL::X509;
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
+use HTTP::Tiny;
 use JSON qw(decode_json);
 use MIME::Base64 3.11 qw(decode_base64 decode_base64url encode_base64);
 use Net::SSLeay;
@@ -192,10 +193,10 @@ sub fetch {
 
     my $url  = $args{url}  // $DEFAULT_URL;
     my $http = $args{http} // do {
-        require HTTP::Tiny;
         HTTP::Tiny->new(
-            agent   => "Authen-WebAuthn/" . ( $class->VERSION // "dev" ),
-            timeout => 60,
+            agent      => "Authen-WebAuthn/" . ( $class->VERSION // "dev" ),
+            timeout    => 60,
+            verify_SSL => 1,    # the default only from HTTP::Tiny 0.083
         );
     };
 

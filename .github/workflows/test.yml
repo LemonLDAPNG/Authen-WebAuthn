@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: >-
           cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
-          Hash::Merge::Simple JSON MIME::Base64 Mouse Net::SSLeay URI
+          HTTP::Tiny Hash::Merge::Simple JSON MIME::Base64 Mouse Net::SSLeay URI
           || { cat ~/.cpanm/build.log; exit 1; }
       # JSON::XS is only recommended; without it JSON.pm uses JSON::PP
       - name: Tests, with JSON::PP
