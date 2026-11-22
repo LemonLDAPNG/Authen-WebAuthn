@@ -1,7 +1,7 @@
 Responses from real authenticators, for t/24-Real-devices.t
 
-fixtures.json holds the registrations and assertions that two other
-WebAuthn libraries test with, recorded from real devices: Apple
+fixtures.json holds registrations and assertions recorded from real
+devices, most of them the ones two other WebAuthn libraries test with: Apple
 (iOS, macOS and a passkey), Windows Hello and five other TPMs, two
 Android phones, and YubiKeys and Security Keys from the NEO to the Bio.
 
@@ -41,7 +41,15 @@ The Apple, Google and GlobalSign roots are as py_webauthn ships them
 (webauthn/helpers/known_root_certs.py), the Microsoft root as
 java-webauthn-server's Windows Hello example gives it.
 
-The responses are covered by the licences below.
+The fixtures from "Authen-WebAuthn" were recorded for this module,
+from Safari 27.2 on macOS 15.7 and an iPhone, with rp_id
+localhost: an iCloud Keychain passkey made with Touch ID, and one made
+on the iPhone over hybrid transport (a QR code from the Mac), each
+registered and used to sign in. Both answer a request for direct
+attestation with none, and are backed up ("flags" records what the
+authenticator data says). They are covered by this module's licence.
+
+The other responses are covered by the licences below.
 
 py_webauthn:
 
