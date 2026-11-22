@@ -4,6 +4,7 @@ use strict;
 
 use Authen::WebAuthn;
 use Authen::WebAuthn::Test;
+use Digest::SHA ();
 
 my $rp = Authen::WebAuthn->new(
     origin => "http://auth.example.com",
@@ -259,6 +260,62 @@ subtest "Trailing bytes" => sub {
         qr/Trailing bytes in authenticator data/,
         "With the expected message"
     );
+};
+
+subtest "Client data with a byte order mark" => sub {
+    my $bom = "\xEF\xBB\xBF";
+
+    my $credential = $authenticator->get_credential_response(
+        { request => { challenge => "abc" } } );
+    ok(
+        eval {
+            $rp->validate_registration(
+                challenge_b64        => "abc",
+                client_data_json_b64 => encode_base64url(
+                    $bom . $credential->{response}->{clientDataJSON}
+                ),
+                attestation_object_b64 => encode_base64url(
+                    $credential->{response}->{attestationObject}
+                ),
+            );
+        },
+        "Registration"
+    ) or diag $@;
+
+    my $assertion = $authenticator->get_assertion_response(
+        { request => { challenge => "def" } } );
+    my $response  = $assertion->{response};
+    my $client_data_json = $bom . $response->{clientDataJSON};
+    my %assertion = (
+        challenge_b64         => "def",
+        credential_pubkey_b64 =>
+          encode_base64url( $authenticator->encode_cosekey ),
+        client_data_json_b64   => encode_base64url($client_data_json),
+        authenticator_data_b64 =>
+          encode_base64url( $response->{authenticatorData} ),
+    );
+    ok(
+        eval {
+            $rp->validate_assertion(
+                %assertion,
+                signature_b64 => encode_base64url(
+                    $authenticator->sign(
+                        $response->{authenticatorData}
+                          . Digest::SHA::sha256($client_data_json)
+                    )
+                ),
+            );
+        },
+        "Assertion, signed over the client data with its byte order mark"
+    ) or diag $@;
+    ok(
+        !eval {
+            $rp->validate_assertion( %assertion,
+                signature_b64 => encode_base64url( $response->{signature} ) );
+        },
+        "... but not one signed over the client data without it"
+    );
+    like( $@, qr/signature was not valid/, "... with the expected message" );
 };
 
 done_testing();

@@ -1431,7 +1431,10 @@ sub _check_cose_key {
 sub _decode_client_data {
     my ($client_data_json) = @_;
 
-    my $client_data = eval { decode_json( $client_data_json // "" ) };
+    # UTF-8 decode, as both ceremonies say, strips a leading byte order mark.
+    # The hash is still computed over the bytes as received.
+    ( my $json_text = $client_data_json // "" ) =~ s/\A\xEF\xBB\xBF//;
+    my $client_data = eval { decode_json($json_text) };
     if ($@) {
         croak("Error deserializing client data: $@");
     }

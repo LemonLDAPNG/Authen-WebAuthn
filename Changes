@@ -55,6 +55,8 @@ Unreleased
     later refuse; as Yubico's own libraries do, the count is read as 0
   - MIME::Base64 3.11 or later is required: the base64url functions the
     module uses are missing from the copy that comes with Perl 5.10
+  - Client data beginning with a UTF-8 byte order mark is accepted, as
+    both ceremonies' UTF-8 decode strips it; it used to fail to parse
 
   [New]
   - ES384, ES512 and EdDSA (Ed25519) credential keys, and RFC 9864's
