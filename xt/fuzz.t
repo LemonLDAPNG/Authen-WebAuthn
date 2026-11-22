@@ -11,6 +11,7 @@ use strict;
 use warnings;
 
 use Authen::WebAuthn;
+use Authen::WebAuthn::Metadata;
 
 # Mutation fuzzing of the parsers that read client-supplied bytes, seeded
 # with the real-device responses and the test PKI. Each input must be
@@ -153,6 +154,36 @@ $seeds{der} = [
     @{ $seeds{android_key_description} },
     @{ $seeds{apple_nonce} }
 ];
+
+# Metadata BLOBs from the test PKI, whole and as the payloads they sign
+require "./t/mds.pl";
+my @mds_entries = (
+    mds_entry(),
+    mds_entry(
+        aaguid                               => undef,
+        attestationCertificateKeyIdentifiers => ["0123456789abcdef"],
+        statusReports                        => [
+            { status => "FIDO_CERTIFIED_L1", effectiveDate => "2024-01-01" },
+            {
+                status      => "ATTESTATION_KEY_COMPROMISE",
+                certificate =>
+                  MIME::Base64::encode_base64( mds_der("root.pem"), "" ),
+            },
+        ],
+    ),
+);
+my $mds_payload = {
+    legalHeader => "Test metadata",
+    no          => 7,
+    nextUpdate  => "2100-01-01",
+    entries     => \@mds_entries,
+};
+$seeds{metadata_blob} = [
+    mds_blob( entries => \@mds_entries ),
+    mds_blob( signer  => "mds-signer-rsa" )
+];
+$seeds{metadata_payload} = [ JSON::PP->new->canonical->encode($mds_payload) ];
+my $mds_root = mds_pem("mds-root.pem");
 
 # CBOR exactly as the module reads it, so the decoder sees real shapes
 sub encode_cbor_raw {
@@ -470,6 +501,23 @@ my %targets = (
     tpm_pub_area => sub {
         Authen::WebAuthn::_tpm_public_area( $_[0] );
     },
+    metadata_blob => sub {
+        Authen::WebAuthn::Metadata->new(
+            blob => $_[0],
+            root => $mds_root,
+            crls => mds_crls()
+        );
+    },
+
+    # Signed again, so the payload reaches the parser behind the signature
+    metadata_payload => sub {
+        my $md = Authen::WebAuthn::Metadata->new(
+            blob => mds_blob( payload_json => $_[0] ),
+            root => $mds_root,
+        );
+        $md->entry( aaguid         => "01020304-0506-0708-090a-0b0c0d0e0f10" );
+        $md->entry( key_identifier => "0123456789abcdef" );
+    },
     registration => sub {
         my ( $f, $part, $bytes ) = @{ $_[1] };
         register( $f, $part => encode_base64url($bytes) );
@@ -484,6 +532,7 @@ my %targets = (
 my %parts = (
     registration => [
         \@registrations,
+
         # The attestation object twice as often as the client data
         [
             qw(attestation_object_b64 attestation_object_b64
@@ -499,7 +548,8 @@ my %parts = (
     ],
 );
 
-my @run = $ENV{FUZZ_TARGETS}
+my @run =
+  $ENV{FUZZ_TARGETS}
   ? split /,/, $ENV{FUZZ_TARGETS}
   : sort keys %targets;
 for my $target (@run) {

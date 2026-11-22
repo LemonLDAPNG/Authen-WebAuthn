@@ -137,7 +137,8 @@ Unreleased
   - t/25-Metadata.t verifies metadata BLOBs signed by a test Metadata
     Service in t/pki, with CRLs, and registers against them. xt/mds.t
     downloads FIDO's BLOB and registers the real-device fixtures with the
-    roots it lists
+    roots it lists. xt/fuzz.t fuzzes BLOBs whole and their payloads
+    signed again
   - The author tests (dzil test --author) check POD syntax and coverage,
     perlcritic's severity 5 policies, and that no code needs a Perl newer
     than 5.010, the minimum the distribution metadata now declares
