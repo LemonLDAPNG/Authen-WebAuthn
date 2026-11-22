@@ -480,8 +480,8 @@ sub validate_registration {
     my ( $attestation_result, $metadata_entry ) =
       $self->_verify_statement( $attestation_statement_format, @statement );
 
-    # 22. Check that the credentialId is not yet registered to any other user
-    # TODO
+    # 22. Checking that the credentialId is not yet registered to any user
+    # is the caller's, as only its database can (see CREDENTIAL RECORD)
 
     # 23. If the attestation statement attStmt verified successfully and is
     # found to be trustworthy, then register the new credential with the

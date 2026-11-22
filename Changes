@@ -97,6 +97,9 @@ Unreleased
     backup_eligible and backup_state
   - stored_backup_eligible option to validate_assertion: the Backup
     Eligibility flag must match the one stored at registration
+  - The documentation's CREDENTIAL RECORD section maps WebAuthn Level 3's
+    credential record to what validate_registration returns, and says
+    what to update after each validate_assertion
   - Sign-in without a username: validate_assertion checks the credential
     against the allowed credentials and the user handle against the
     credential's owner, and can require a user handle

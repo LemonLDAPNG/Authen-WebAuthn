@@ -697,6 +697,40 @@ existing U2F device registration to WebAuthen device registrations in your
 Relying Party.
 
 
+=head1 CREDENTIAL RECORD
+
+WebAuthn Level 3 (section 7.1) lists what a Relying Party stores for each
+credential. C<validate_registration> returns each item:
+
+=over 4
+
+=item id: C<credential_id>
+
+=item publicKey: C<credential_pubkey>
+
+=item signCount: C<signature_count>
+
+=item uvInitialized: C<user_verified>
+
+=item transports: C<transports>, when given C<credential_json>
+
+=item backupEligible: C<backup_eligible>
+
+=item backupState: C<backup_state>
+
+=back
+
+Its type is always C<public-key>. Before storing it, check that no user
+already has a credential with this C<credential_id>, which only your database
+can tell: the specification says registration should then fail.
+
+After each C<validate_assertion> (section 7.2), store C<signature_count> and
+C<backup_state>, and pass the stored C<backup_eligible> as
+C<stored_backup_eligible>. When uvInitialized is false and C<user_verified> is
+1, the specification lets it become true, but says that change should be
+authorized by another factor equivalent to user verification. Until it is
+true, do not count C<user_verified> as an authentication factor.
+
 =head1 CAVEAT
 
 This module supports the "none", "packed", "fido-u2f", "apple", "android-key",
