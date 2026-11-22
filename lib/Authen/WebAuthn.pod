@@ -568,6 +568,12 @@ Relying Party's policy: set this to 1 to have validation succeed anyway and
 return C<sign_count_regressed>, to flag the credential or ask for another
 factor instead.
 
+=item stored_backup_eligible
+
+The C<backup_eligible> that C<validate_registration> returned for this
+credential, if you stored it. Given, the authenticator's Backup Eligibility
+flag must still have that value, as a credential's eligibility never changes.
+
 =item requested_uv
 
 Whether or not the Relying Party required user verification for this operation.

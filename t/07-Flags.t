@@ -262,6 +262,30 @@ subtest "Trailing bytes" => sub {
     );
 };
 
+subtest "Backup Eligibility does not change" => sub {
+    my $eligible = assertion_flags( backupEligible => 1 );
+    ok( authenticate( $eligible, stored_backup_eligible => 1 ),
+        "Eligible, and eligible at registration" );
+    ok( authenticate( undef, stored_backup_eligible => 0 ),
+        "Not eligible, and not eligible at registration" );
+    ok( authenticate($eligible), "Not checked without stored_backup_eligible" );
+
+    ok( !authenticate( $eligible, stored_backup_eligible => 0 ),
+        "Eligible, but not at registration" );
+    like(
+        $@,
+        qr/Backup Eligibility flag is set but was not set at registration/,
+        "... is refused"
+    );
+    ok( !authenticate( undef, stored_backup_eligible => 1 ),
+        "Not eligible, but eligible at registration" );
+    like(
+        $@,
+        qr/Backup Eligibility flag is not set but was set at registration/,
+        "... is refused"
+    );
+};
+
 subtest "Client data with a byte order mark" => sub {
     my $bom = "\xEF\xBB\xBF";
 

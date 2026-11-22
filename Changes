@@ -94,6 +94,8 @@ Unreleased
     origin
   - validate_registration and validate_assertion return user_verified,
     backup_eligible and backup_state
+  - stored_backup_eligible option to validate_assertion: the Backup
+    Eligibility flag must match the one stored at registration
   - Sign-in without a username: validate_assertion checks the credential
     against the allowed credentials and the user handle against the
     credential's owner, and can require a user handle

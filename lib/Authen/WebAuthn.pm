@@ -934,6 +934,20 @@ sub validate_assertion {
         croak("User not verified during WebAuthn authentication");
     }
 
+    # WebAuthn Level 3: compare the BE flag with the credential record's,
+    # as a credential's backup eligibility never changes
+    if ( defined $params{stored_backup_eligible} ) {
+        my $current = $authenticator_data->{flags}->{backupEligible} ? 1 : 0;
+        my $stored  = $params{stored_backup_eligible}                ? 1 : 0;
+        unless ( $current == $stored ) {
+            croak(  "Backup Eligibility flag is "
+                  . ( $current ? "set" : "not set" )
+                  . " but was "
+                  . ( $stored ? "set" : "not set" )
+                  . " at registration" );
+        }
+    }
+
     # 18. Verify that the values of the client extension outputs in
     # clientExtensionResults and the authenticator extension outputs in the
     # extensions in authData are as expected,
