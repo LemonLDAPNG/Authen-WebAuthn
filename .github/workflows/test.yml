@@ -23,9 +23,15 @@ jobs:
       - name: Install dependencies
         run: >-
           cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
-          Hash::Merge::Simple JSON Mouse Net::SSLeay URI
+          Hash::Merge::Simple JSON JSON::XS Mouse Net::SSLeay URI
           || { cat ~/.cpanm/build.log; exit 1; }
-      - run: prove -l t
+      - name: Tests, with JSON::XS
+        run: prove -l t
+      # JSON::XS is only recommended; JSON.pm falls back to JSON::PP
+      - name: Tests, with JSON::PP
+        run: prove -l t
+        env:
+          PERL_JSON_BACKEND: JSON::PP
 
   valgrind:
     name: valgrind

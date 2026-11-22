@@ -79,6 +79,8 @@ Unreleased
     what was requested (prf asks for hmac-secret and hmac-secret-mc); a
     malformed output nobody requested is left out.
     validate_registration reports whether the credential is discoverable
+  - JSON::XS is a recommended dependency: JSON.pm uses it when it is
+    installed, and is several times slower without it
 
   [Authen::WebAuthn::Test]
   - Produces RSA, P-384, P-521, Ed25519 and Ed448 keys
@@ -103,8 +105,8 @@ Unreleased
     installed
   - Every croak and die was disabled in turn, and a test added for each
     one no test noticed, apart from the guards no input can reach
-  - GitHub Actions runs the tests on Perl 5.20 to 5.40, and under
-    valgrind
+  - GitHub Actions runs the tests on Perl 5.20 to 5.40, with JSON::XS and
+    with JSON::PP, and under valgrind
 
 0.005
   - Add allow_unknown_attestation_format option
