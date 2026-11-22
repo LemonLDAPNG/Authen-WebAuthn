@@ -462,9 +462,7 @@ sub validate_registration {
         $client_data_hash,   %params
     );
     my ( $attestation_result, $metadata_entry ) =
-        $attestation_statement_format eq "compound"
-      ? $self->_verify_compound_statement(@statement)
-      : $self->_verify_statement( $attestation_statement_format, @statement );
+      $self->_verify_statement( $attestation_statement_format, @statement );
 
     # 22. Check that the credentialId is not yet registered to any other user
     # TODO
@@ -511,6 +509,10 @@ sub _verify_statement {
     my ( $self, $format, $attestation_statement, $authenticator_data,
         $authenticator_data_raw, $client_data_hash, %params )
       = @_;
+
+    return $self->_verify_compound_statement( @_[ 2 .. $#_ ] )
+      if $format eq "compound";
+    _require_map( $attestation_statement, "Attestation statement" );
 
     my $attestation_function = $ATTESTATION_FUNCTIONS->{$format};
     unless ( ref($attestation_function) eq "CODE" ) {
@@ -606,22 +608,18 @@ sub _verify_compound_statement {
 
     my @results;
     for my $i ( 0 .. $#$statements ) {
+        my $format;
         my ( $result, $entry ) = eval {
             my $statement =
               _require_map( $statements->[$i], "Attestation statement" );
-            my $format = _require_text( $statement->{fmt},
+            $format = _require_text( $statement->{fmt},
                 "Attestation statement format" );
             croak("A compound attestation statement cannot hold another")
               if $format eq "compound";
-            my ( $result, $entry ) = $self->_verify_statement(
-                $format,
-                _require_map( $statement->{attStmt}, "Attestation statement" ),
-                @rest
-            );
-            $result->{format} = $format;
-            ( $result, $entry );
+            $self->_verify_statement( $format, $statement->{attStmt}, @rest );
         };
-        croak("Compound attestation statement $i: $@")  if $@;
+        croak("Compound attestation statement $i: $@") if $@;
+        $result->{format}   = $format;
         $result->{metadata} = _metadata_summary($entry) if $entry;
         push @results, $result;
     }
@@ -1989,9 +1987,6 @@ sub getAttestationObject {
     _require_text( $h->{fmt}, "Attestation statement format" );
     _require_bytes( $h->{authData}, "Authenticator data" );
 
-    # A compound statement is a list, which its verification checks
-    _require_map( $h->{attStmt}, "Attestation statement" )
-      unless $h->{fmt} eq "compound";
     $res->{authData}    = getAuthData( $h->{authData} );
     $res->{authDataRaw} = $h->{authData};
     $res->{attStmt}     = $h->{attStmt};

@@ -353,30 +353,26 @@ sub _attestation_statement {
     my ( $self, $client_data_json ) = @_;
 
     my $format = $self->attestation_format;
-    return {} if $format eq 'none';
+    return sub { {} }
+      if $format eq 'none';
 
     if ( $format eq 'compound' ) {
         my @statements = map {
             my $format = $_->{attestation_format};
             utf8::upgrade($format);
-            [
-                $format,
-                ref($self)
+            {
+                fmt     => $format,
+                attStmt =>
+                  ref($self)
                   ->new( %$self, %$_ )
                   ->_attestation_statement($client_data_json)
-            ]
+            }
         } @{ $self->compound_statements || [] };
         return sub {
             my ($auth_data) = @_;
             return [
                 map {
-                    my ( $format, $statement ) = @$_;
-                    {
-                        fmt     => $format,
-                        attStmt => ref($statement) eq 'CODE'
-                        ? $statement->($auth_data)
-                        : $statement
-                    }
+                    { %$_, attStmt => $_->{attStmt}->($auth_data) }
                 } @statements
             ];
         };
