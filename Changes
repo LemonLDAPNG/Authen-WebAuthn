@@ -81,6 +81,10 @@ Unreleased
     refused. Metadata past its nextUpdate date fails every registration
     until it is fetched again. metadata_required, refused_statuses and
     metadata_grace_days adjust this
+  - The compound attestation format (WebAuthn Level 3, section 8.9): two
+    or more statements of other formats, each verified and checked for
+    trust as a lone statement would be. Registration fails if any one
+    fails; attestation_result has type Compound and lists the statements
   - allow_sign_count_regression: a signature count that did not increase
     is reported as sign_count_regressed instead of failing, for Relying
     Parties whose policy is to flag the credential
@@ -112,6 +116,7 @@ Unreleased
     attestation
   - Encodes CBOR canonically, as authenticators do, with integer map
     keys as CBOR integers
+  - Compound attestation, with compound_statements
   - encode_credential encodes userHandle, and a registration's rawId, as
     base64url
 
@@ -141,6 +146,8 @@ Unreleased
     roots it lists: 28 of the 32 attested fixtures are in it, and chain to
     them. xt/fuzz.t fuzzes BLOBs whole and their payloads
     signed again
+  - t/26-Compound-attestation.t, with compound statements from
+    Authen::WebAuthn::Test, which can now make them
   - The author tests (dzil test --author) check POD syntax and coverage,
     perlcritic's severity 5 policies, and that no code needs a Perl newer
     than 5.010, the minimum the distribution metadata now declares

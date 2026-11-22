@@ -31,8 +31,12 @@ has user_handle => ( is => 'rw', default => '' );
 # COSE algorithm; by default, inferred from the key
 has alg => ( is => 'rw', lazy => 1, builder => '_build_alg' );
 
-# "none", "packed" or "fido-u2f"
+# "none", "packed", "fido-u2f" or "compound"
 has attestation_format => ( is => 'rw', default => 'none' );
+
+# For "compound": the statements it holds, each a hashref of
+# attestation_format, attestation_key and attestation_certificates
+has compound_statements => ( is => 'rw' );
 
 # For "packed" with a certificate, and "fido-u2f": the attestation key, and
 # its certificate followed by any intermediates, all PEM. Without them,
@@ -351,6 +355,33 @@ sub _attestation_statement {
     my $format = $self->attestation_format;
     return {} if $format eq 'none';
 
+    if ( $format eq 'compound' ) {
+        my @statements = map {
+            my $format = $_->{attestation_format};
+            utf8::upgrade($format);
+            [
+                $format,
+                ref($self)
+                  ->new( %$self, %$_ )
+                  ->_attestation_statement($client_data_json)
+            ]
+        } @{ $self->compound_statements || [] };
+        return sub {
+            my ($auth_data) = @_;
+            return [
+                map {
+                    my ( $format, $statement ) = @$_;
+                    {
+                        fmt     => $format,
+                        attStmt => ref($statement) eq 'CODE'
+                        ? $statement->($auth_data)
+                        : $statement
+                    }
+                } @statements
+            ];
+        };
+    }
+
     my $certificates = $self->attestation_certificates;
     my $x5c = $certificates ? [ map { _der($_) } @$certificates ] : undef;
     my $attestation_key =
@@ -574,7 +605,7 @@ for a discoverable credential. Empty by default.
 
 =item attestation_format
 
-C<none> (the default), C<packed> or C<fido-u2f>.
+C<none> (the default), C<packed>, C<fido-u2f> or C<compound>.
 
 =item attestation_key, attestation_certificates
 
@@ -582,6 +613,22 @@ For C<packed> attestation with a certificate, and for C<fido-u2f>: the
 attestation private key, PEM-encoded, and an arrayref of PEM certificates,
 the attestation certificate first. Without them, C<packed> is self
 attestation.
+
+=item compound_statements
+
+For C<compound>: an arrayref of the statements it holds, each a hashref of
+C<attestation_format> and, as above, C<attestation_key> and
+C<attestation_certificates>.
+
+    attestation_format  => "compound",
+    compound_statements => [
+        { attestation_format => "packed" },
+        {
+            attestation_format       => "fido-u2f",
+            attestation_key          => $key_pem,
+            attestation_certificates => [$certificate_pem],
+        },
+    ],
 
 =back
 

@@ -461,7 +461,9 @@ sub validate_registration {
         $client_data_hash,   %params
     );
     my ( $attestation_result, $metadata_entry ) =
-      $self->_verify_statement( $attestation_statement_format, @statement );
+        $attestation_statement_format eq "compound"
+      ? $self->_verify_compound_statement(@statement)
+      : $self->_verify_statement( $attestation_statement_format, @statement );
 
     # 22. Check that the credentialId is not yet registered to any other user
     # TODO
@@ -591,6 +593,43 @@ sub _verify_statement {
         $attestation_result->{type} );
 
     return ( $attestation_result, $metadata_entry );
+}
+
+# A compound statement (WebAuthn Level 3, section 8.9) holds two or more
+# statements of other formats; every one must verify and be trusted
+sub _verify_compound_statement {
+    my ( $self, $statements, @rest ) = @_;
+
+    croak("Compound attestation statement is not a list of two or more")
+      unless ref($statements) eq "ARRAY" and @$statements >= 2;
+
+    my @results;
+    for my $i ( 0 .. $#$statements ) {
+        my ( $result, $entry ) = eval {
+            my $statement =
+              _require_map( $statements->[$i], "Attestation statement" );
+            my $format = _require_text( $statement->{fmt},
+                "Attestation statement format" );
+            croak("A compound attestation statement cannot hold another")
+              if $format eq "compound";
+            my ( $result, $entry ) = $self->_verify_statement(
+                $format,
+                _require_map( $statement->{attStmt}, "Attestation statement" ),
+                @rest
+            );
+            $result->{format} = $format;
+            ( $result, $entry );
+        };
+        croak("Compound attestation statement $i: $@")  if $@;
+        $result->{metadata} = _metadata_summary($entry) if $entry;
+        push @results, $result;
+    }
+    return {
+        success    => 1,
+        type       => "Compound",
+        trust_path => [],
+        statements => \@results,
+    };
 }
 
 sub _metadata_summary {
@@ -1952,7 +1991,9 @@ sub getAttestationObject {
     _require_text( $h->{fmt}, "Attestation statement format" );
     _require_bytes( $h->{authData}, "Authenticator data" );
 
-    _require_map( $h->{attStmt}, "Attestation statement" );
+    # A compound statement is a list, which its verification checks
+    _require_map( $h->{attStmt}, "Attestation statement" )
+      unless $h->{fmt} eq "compound";
     $res->{authData}    = getAuthData( $h->{authData} );
     $res->{authDataRaw} = $h->{authData};
     $res->{attStmt}     = $h->{attStmt};

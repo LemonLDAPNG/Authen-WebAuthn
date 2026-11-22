@@ -12,7 +12,7 @@ A library to add [Web Authentication](https://www.w3.org/TR/webauthn/) support t
 * ECDSA (P-256, P-384, P-521), Ed25519, Ed448 and RSA keys supported,
   including the fully-specified algorithm identifiers of RFC 9864
 * Supported attestation formats: none, packed, fido-u2f, apple, android-key,
-  tpm
+  tpm, compound
 * Mandatory attestation trust chain validation
 * FIDO Metadata Service (MDS3): attestation roots and authenticator status
   from FIDO's signed metadata, read offline, with CRL-checked downloads

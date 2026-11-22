@@ -341,7 +341,8 @@ date, or at any age.
 If you want to restrict the allowed attestation types, you can pass an arrayref of strings as the C<allowed_attestation_types> parameter.
 
 Currently supported values are C<None>, C<Self>, C<Basic>, C<AttCA> (the
-C<tpm> format) and C<AnonCA> (the C<apple> format)
+C<tpm> format) and C<AnonCA> (the C<apple> format). In a C<compound>
+attestation, every statement's type must be allowed.
 
 By default, all attestation types are allowed
 
@@ -495,7 +496,7 @@ Contains information about the result of the attestation validation
 =item type
 
 The type of attestation used by the authenticator: C<None>, C<Self>,
-C<Basic>, C<AttCA> or C<AnonCA>
+C<Basic>, C<AttCA> or C<AnonCA>, or C<Compound> for the C<compound> format
 
 =item trust_path
 
@@ -510,6 +511,15 @@ otherwise it is only as trustworthy as your choice of trust anchors, since a
 root shared by several models will vouch for any of their AAGUIDs. Choosing the
 anchors by AAGUID (a C<trust_anchors> subroutine reading the FIDO Metadata
 Service, for instance) binds it.
+
+=item statements
+
+For C<Compound>: the statements, in order, each a hashref with C<format>,
+C<type>, C<trust_path> and, with C<metadata>, its model's C<metadata>. The
+compound format (WebAuthn Level 3, section 8.9) carries two or more
+statements of other formats. Each is verified by its own format and checked
+against C<trust_anchors>, C<metadata> and C<allowed_attestation_types> as a
+lone statement would be, and registration fails if any one fails.
 
 =back
 
@@ -676,8 +686,8 @@ Relying Party.
 
 =head1 CAVEAT
 
-This module supports the "none", "packed", "fido-u2f", "apple", "android-key"
-and "tpm" attestation formats. Their certificates chain to the vendors' roots
+This module supports the "none", "packed", "fido-u2f", "apple", "android-key",
+"tpm" and "compound" attestation formats. Their certificates chain to the vendors' roots
 (Apple's WebAuthn root, Google's hardware attestation roots, the TPM
 manufacturers' roots), which you supply in C<trust_anchors>, or which the FIDO
 Metadata Service lists for each model (see C<metadata>).
