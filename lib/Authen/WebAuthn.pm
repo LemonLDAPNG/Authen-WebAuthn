@@ -324,20 +324,13 @@ sub validate_registration {
     my $credential;
     ( $credential, %params ) = _credential_params( "registration", %params );
 
-    my (
-        $challenge_b64,               $requested_uv,
-        $client_data_json_b64,        $attestation_object_b64,
-        $trust_anchors,               $allowed_attestation_types,
-        $allow_untrusted_attestation, $allow_unknown_attestation_format,
-        $allowed_algs,                $extension_results,
-        $requested_extensions,
-      )
+    my ( $challenge_b64, $requested_uv,
+        $client_data_json_b64, $attestation_object_b64,
+        $allowed_algs, $extension_results, $requested_extensions, )
       = @params{ qw(
           challenge_b64        requested_uv
           client_data_json_b64 attestation_object_b64
-          trust_anchors
-          allowed_attestation_types allow_untrusted_attestation
-          allow_unknown_attestation_format allowed_algs
+          allowed_algs
           extension_results requested_extensions
         )
       };
@@ -462,88 +455,13 @@ sub validate_registration {
     # case-sensitive match on fmt against the set of supported WebAuthn
     # Attestation Statement Format Identifier values.
     my $attestation_statement_format = $attestation_object->{'fmt'};
-    my $attestation_function =
-      $ATTESTATION_FUNCTIONS->{$attestation_statement_format};
-    unless ( ref($attestation_function) eq "CODE" ) {
-        if ($allow_unknown_attestation_format) {
-
-            # Treat unknown attestation as None
-            $attestation_function = $ATTESTATION_FUNCTIONS->{none};
-        }
-        else {
-            croak(
-                "Unsupported attestation format during WebAuthn registration: "
-                  . $attestation_statement_format );
-        }
-    }
-
-    # 19. Verify that attStmt is a correct attestation statement, conveying a
-    # valid attestation signature, by using the attestation statement format
-    # fmt’s verification procedure given attStmt, authData and hash.
-    my $attestation_statement  = $attestation_object->{attStmt};
-    my $authenticator_data_raw = $attestation_object->{authDataRaw};
-    my $attestation_result     = eval {
-        $attestation_function->(
-            $attestation_statement,
-            $authenticator_data,
-            $authenticator_data_raw,
-            $client_data_hash,
-            { android_key_require_tee => $params{android_key_require_tee} },
-        );
-    };
-    croak( "Failed to validate attestation: " . $@ ) if ($@);
-
-    # uncoverable branch true note:attestation functions croak instead
-    unless ( $attestation_result->{success} == 1 ) {
-
-        # uncoverable statement
-        croak("Failed to validate attestation: $attestation_result->{error}");
-    }
-
-    # 20. If validation is successful, obtain a list of acceptable trust
-    # anchors (i.e. attestation root certificates) for that attestation type
-    # and attestation statement format fmt, from a trusted source or from
-    # policy.
-    if ( ref($trust_anchors) eq "CODE" ) {
-
-        my $aaguid = $authenticator_data->{attestedCredentialData}->{aaguid};
-
-        $trust_anchors = $trust_anchors->(
-            aaguid             => $aaguid,
-            attestation_type   => $attestation_result->{type},
-            attestation_format => $attestation_statement_format,
-        );
-
-        if ( ref($trust_anchors) ne "ARRAY" ) {
-            croak("trust_anchors sub must return an ARRAY reference");
-        }
-    }
-    elsif ( defined($trust_anchors) and ref($trust_anchors) ne "ARRAY" ) {
-        croak("trust_anchors parameter must be a SUB or ARRAY reference");
-    }
-
-    # Metadata names the roots of an attested model, and refuses models
-    # whose attestation can no longer be trusted
-    my $metadata_entry;
-    if ( defined $metadata
-        and $attestation_result->{type} !~ /^(?:Self|None)$/ )
-    {
-        $metadata_entry =
-          _check_metadata( $metadata, $attestation_result, $authenticator_data,
-            $attestation_statement_format, %params );
-        $trust_anchors = [
-            @{ $trust_anchors || [] },
-            @{ $metadata_entry->{attestation_roots} }
-          ]
-          if $metadata_entry;
-    }
-
-    # 21. Assess the attestation trustworthiness using the outputs of the
-    # verification procedure in step 19, as follows:
-    $self->check_attestation_trust( $attestation_result, $trust_anchors,
-        $allow_untrusted_attestation );
-    $self->check_attestation_type( $allowed_attestation_types,
-        $attestation_result->{type} );
+    my @statement                    = (
+        $attestation_object->{attStmt},
+        $authenticator_data, $attestation_object->{authDataRaw},
+        $client_data_hash,   %params
+    );
+    my ( $attestation_result, $metadata_entry ) =
+      $self->_verify_statement( $attestation_statement_format, @statement );
 
     # 22. Check that the credentialId is not yet registered to any other user
     # TODO
@@ -578,15 +496,107 @@ sub validate_registration {
         _discoverable( $extensions{extension_results} ),
         (
             $metadata_entry
-            ? (
-                metadata => {
-                    map { $_ => $metadata_entry->{$_} }
-                      qw(aaguid description status status_report statement)
-                }
-              )
+            ? ( metadata => _metadata_summary($metadata_entry) )
             : ()
         ),
     };
+}
+
+# Steps 18 to 21 for one attestation statement: verify it by its format,
+# then check its trust path
+sub _verify_statement {
+    my ( $self, $format, $attestation_statement, $authenticator_data,
+        $authenticator_data_raw, $client_data_hash, %params )
+      = @_;
+
+    my $attestation_function = $ATTESTATION_FUNCTIONS->{$format};
+    unless ( ref($attestation_function) eq "CODE" ) {
+        if ( $params{allow_unknown_attestation_format} ) {
+
+            # Treat unknown attestation as None
+            $attestation_function = $ATTESTATION_FUNCTIONS->{none};
+        }
+        else {
+            croak(
+                "Unsupported attestation format during WebAuthn registration: "
+                  . $format );
+        }
+    }
+
+    # 19. Verify that attStmt is a correct attestation statement, conveying a
+    # valid attestation signature, by using the attestation statement format
+    # fmt’s verification procedure given attStmt, authData and hash.
+    my $attestation_result = eval {
+        $attestation_function->(
+            $attestation_statement,
+            $authenticator_data,
+            $authenticator_data_raw,
+            $client_data_hash,
+            { android_key_require_tee => $params{android_key_require_tee} },
+        );
+    };
+    croak( "Failed to validate attestation: " . $@ ) if ($@);
+
+    # uncoverable branch true note:attestation functions croak instead
+    unless ( $attestation_result->{success} == 1 ) {
+
+        # uncoverable statement
+        croak("Failed to validate attestation: $attestation_result->{error}");
+    }
+
+    # 20. If validation is successful, obtain a list of acceptable trust
+    # anchors (i.e. attestation root certificates) for that attestation type
+    # and attestation statement format fmt, from a trusted source or from
+    # policy.
+    my $trust_anchors = $params{trust_anchors};
+    if ( ref($trust_anchors) eq "CODE" ) {
+
+        my $aaguid = $authenticator_data->{attestedCredentialData}->{aaguid};
+
+        $trust_anchors = $trust_anchors->(
+            aaguid             => $aaguid,
+            attestation_type   => $attestation_result->{type},
+            attestation_format => $format,
+        );
+
+        if ( ref($trust_anchors) ne "ARRAY" ) {
+            croak("trust_anchors sub must return an ARRAY reference");
+        }
+    }
+    elsif ( defined($trust_anchors) and ref($trust_anchors) ne "ARRAY" ) {
+        croak("trust_anchors parameter must be a SUB or ARRAY reference");
+    }
+
+    # Metadata names the roots of an attested model, and refuses models
+    # whose attestation can no longer be trusted
+    my $metadata_entry;
+    if ( defined $params{metadata}
+        and $attestation_result->{type} !~ /^(?:Self|None)$/ )
+    {
+        $metadata_entry =
+          _check_metadata( $params{metadata}, $attestation_result,
+            $authenticator_data, $format, %params );
+        $trust_anchors = [
+            @{ $trust_anchors || [] },
+            @{ $metadata_entry->{attestation_roots} }
+          ]
+          if $metadata_entry;
+    }
+
+    # 21. Assess the attestation trustworthiness using the outputs of the
+    # verification procedure in step 19, as follows:
+    $self->check_attestation_trust( $attestation_result, $trust_anchors,
+        $params{allow_untrusted_attestation} );
+    $self->check_attestation_type( $params{allowed_attestation_types},
+        $attestation_result->{type} );
+
+    return ( $attestation_result, $metadata_entry );
+}
+
+sub _metadata_summary {
+    my ($entry) = @_;
+    return { map { $_ => $entry->{$_} }
+          qw(aaguid description status status_report statement) };
 }
 
 # MDS statuses for which FIDO says a model should not be trusted
@@ -1941,6 +1951,7 @@ sub getAttestationObject {
     my $h       = _require_map( _decode_cbor($decoded), "Attestation object" );
     _require_text( $h->{fmt}, "Attestation statement format" );
     _require_bytes( $h->{authData}, "Authenticator data" );
+
     _require_map( $h->{attStmt}, "Attestation statement" );
     $res->{authData}    = getAuthData( $h->{authData} );
     $res->{authDataRaw} = $h->{authData};
