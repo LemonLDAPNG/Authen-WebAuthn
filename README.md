@@ -4,6 +4,8 @@ A library to add [Web Authentication](https://www.w3.org/TR/webauthn/) support t
 
 # Status
 
+* Implements the Relying Party steps of [WebAuthn Level 3](https://www.w3.org/TR/webauthn-3/)
+  (sections 7.1 and 7.2)
 * Authentication works
 * Builds the options for registration and authentication requests
 * Takes the credential as the browser serializes it (`PublicKeyCredential.toJSON()`)
