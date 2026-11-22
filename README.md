@@ -14,10 +14,8 @@ A library to add [Web Authentication](https://www.w3.org/TR/webauthn/) support t
 * Supported attestation formats: none, packed, fido-u2f, apple, android-key,
   tpm
 * Mandatory attestation trust chain validation
-
-# TODO
-
-* Support FIDO Metadata Service
+* FIDO Metadata Service (MDS3): attestation roots and authenticator status
+  from FIDO's signed metadata, read offline, with CRL-checked downloads
 
 # Documentation
 

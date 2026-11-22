@@ -6,8 +6,9 @@ use warnings;
 # VERSION
 use Mouse;
 use MIME::Base64 3.11 qw(encode_base64url decode_base64url);
-use JSON qw(decode_json from_json to_json);
-use Digest::SHA qw(sha256);
+use JSON              qw(decode_json from_json to_json);
+use Digest::SHA       qw(sha256);
+use Scalar::Util      ();
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
 use CryptX 0.089 ();
@@ -146,6 +147,7 @@ my $DER_CONSTRUCTED = 0x20;
 my $DER_CONTEXT     = 0xa0;    # context-specific, constructed (explicit)
 my %DER             = (
     INTEGER      => [ 0x00,             2 ],
+    BIT_STRING   => [ 0x00,             3 ],
     OCTET_STRING => [ 0x00,             4 ],
     OID          => [ 0x00,             6 ],
     SEQUENCE     => [ $DER_CONSTRUCTED, 16 ],
@@ -340,6 +342,9 @@ sub validate_registration {
         )
       };
 
+    my $metadata = $params{metadata};
+    _check_metadata_freshness( $metadata, %params ) if defined $metadata;
+
     my $client_data_json = decode_base64url($client_data_json_b64);
     my $client_data      = _decode_client_data($client_data_json);
 
@@ -517,6 +522,22 @@ sub validate_registration {
         croak("trust_anchors parameter must be a SUB or ARRAY reference");
     }
 
+    # Metadata names the roots of an attested model, and refuses models
+    # whose attestation can no longer be trusted
+    my $metadata_entry;
+    if ( defined $metadata
+        and $attestation_result->{type} !~ /^(?:Self|None)$/ )
+    {
+        $metadata_entry =
+          _check_metadata( $metadata, $attestation_result, $authenticator_data,
+            $attestation_statement_format, %params );
+        $trust_anchors = [
+            @{ $trust_anchors || [] },
+            @{ $metadata_entry->{attestation_roots} }
+          ]
+          if $metadata_entry;
+    }
+
     # 21. Assess the attestation trustworthiness using the outputs of the
     # verification procedure in step 19, as follows:
     $self->check_attestation_trust( $attestation_result, $trust_anchors,
@@ -555,7 +576,120 @@ sub validate_registration {
         _flags_result( $authenticator_data->{flags} ),
         %extensions,
         _discoverable( $extensions{extension_results} ),
+        (
+            $metadata_entry
+            ? (
+                metadata => {
+                    map { $_ => $metadata_entry->{$_} }
+                      qw(aaguid description status status_report statement)
+                }
+              )
+            : ()
+        ),
     };
+}
+
+# MDS statuses for which FIDO says a model should not be trusted
+my @REFUSED_STATUSES = qw(REVOKED ATTESTATION_KEY_COMPROMISE
+  USER_KEY_REMOTE_COMPROMISE USER_KEY_PHYSICAL_COMPROMISE
+  USER_VERIFICATION_BYPASS);
+
+# Attestation types as metadata statements name them
+my %MDS_ATTESTATION_TYPE =
+  ( Basic => "basic_full", AttCA => "attca", AnonCA => "anonca" );
+
+sub _check_metadata_freshness {
+    my ( $metadata, %params ) = @_;
+
+    croak("metadata must be an Authen::WebAuthn::Metadata object")
+      unless Scalar::Util::blessed($metadata)
+      and $metadata->isa("Authen::WebAuthn::Metadata");
+    return if $params{allow_stale_metadata};
+
+    my $grace = $params{metadata_grace_days} // 0;
+    croak("metadata_grace_days must be a number of days")
+      unless $grace =~ /\A[0-9]+\z/;
+    my $now = $Authen::WebAuthn::SSLeayChainVerifier::verification_time // time;
+    croak(  "Metadata BLOB "
+          . $metadata->no
+          . " is out of date: its next update was due by "
+          . $metadata->next_update )
+      if $now >= $metadata->expires + $grace * 86400;
+    return;
+}
+
+sub _check_metadata {
+    my ( $metadata, $attestation_result, $authenticator_data, $format, %params )
+      = @_;
+
+    my @chain  = @{ $attestation_result->{trust_path} };
+    my $aaguid = $authenticator_data->{attestedCredentialData}->{aaguid};
+    my $entry =
+      (
+             $format eq "fido-u2f"
+          or $aaguid eq "00000000-0000-0000-0000-000000000000"
+      )
+      ? $metadata->entry( key_identifier => _key_identifier( $chain[0] ) )
+      : $metadata->entry( aaguid         => $aaguid );
+
+    unless ($entry) {
+        croak("Authenticator $aaguid is not in the metadata")
+          if $params{metadata_required};
+        return;
+    }
+    my $name = ( $entry->{description} // "Authenticator" )
+      . ( defined $entry->{aaguid} ? " ($entry->{aaguid})" : "" );
+
+    my $status = $entry->{status} // "";
+    my %refused =
+      map { $_ => 1 } @{ $params{refused_statuses} || \@REFUSED_STATUSES };
+    if ( $refused{$status} ) {
+        my $report = $entry->{status_report};
+
+        # A compromised key named in the report concerns only its chains
+        my @named =
+          grep { defined } @{$report}{qw(certificate batchCertificate)};
+        my $concerned = ( $status ne "ATTESTATION_KEY_COMPROMISE" or !@named )
+          || grep {
+            my $der = MIME::Base64::decode_base64($_);
+            grep { $_ eq $der } @chain
+          } @named;
+        croak(
+            "$name has metadata status $status"
+              . (
+                defined $report->{effectiveDate}
+                ? " since $report->{effectiveDate}"
+                : ""
+              )
+        ) if $concerned;
+    }
+
+    my $type = $MDS_ATTESTATION_TYPE{ $attestation_result->{type} };
+    croak(  "$name does not offer $attestation_result->{type} attestation"
+          . " according to its metadata" )
+      if $type
+      and !grep { $_ eq $type } @{ $entry->{attestation_types} };
+
+    return $entry;
+}
+
+# RFC 5280's method 1: the SHA-1 of the subject public key's bits, which
+# U2F metadata uses to name a model
+sub _key_identifier {
+    my ($der) = @_;
+
+    my $pem = _read_certificate($der)->pubkey;
+    $pem =~ s/-----[^-]+-----//g;
+    my ( undef, undef, $spki ) = _der_read( MIME::Base64::decode_base64($pem) );
+    my ( undef, $bits ) = _der_read_all($spki);
+
+    # uncoverable branch true note:OpenSSL writes the public key it read
+    unless ( $bits and _der_is( @$bits[ 0, 1 ], "BIT_STRING" ) ) {
+
+        # uncoverable statement
+        croak("Invalid subject public key");
+    }
+    return unpack( "H*", Digest::SHA::sha1( substr( $bits->[2], 1 ) ) );
 }
 
 # Returns the configured origin that matches the one in client data

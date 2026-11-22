@@ -290,6 +290,52 @@ This optional parameter can either be an arrayref of strings representing PEM-en
         return [ $pem1, $pem2, ...];
     }
 
+=item metadata
+
+An L<Authen::WebAuthn::Metadata> object, from the FIDO Metadata Service. When
+the attestation names a model (C<Basic>, C<AttCA> or C<AnonCA>), the model is
+looked up by AAGUID, or for C<fido-u2f> by the key identifier of the
+attestation certificate, and:
+
+=over 4
+
+=item *
+
+its attestation must chain to the roots its metadata lists, or to
+C<trust_anchors>;
+
+=item *
+
+its current status must not be one of C<refused_statuses>;
+
+=item *
+
+its metadata must list the type of attestation used.
+
+=back
+
+Registration fails, whatever the attestation, once the metadata is past its
+C<nextUpdate> date: fetch it again before then.
+
+A model the metadata does not list falls back to C<trust_anchors>.
+
+=item metadata_required
+
+With C<metadata>: refuse attested models the metadata does not list.
+
+=item refused_statuses
+
+With C<metadata>: the statuses that refuse a model. By default C<REVOKED>,
+C<ATTESTATION_KEY_COMPROMISE>, C<USER_KEY_REMOTE_COMPROMISE>,
+C<USER_KEY_PHYSICAL_COMPROMISE> and C<USER_VERIFICATION_BYPASS>. An
+C<ATTESTATION_KEY_COMPROMISE> report naming a certificate refuses only
+attestations whose chain contains it.
+
+=item metadata_grace_days, allow_stale_metadata
+
+With C<metadata>: accept metadata up to this many days past its C<nextUpdate>
+date, or at any age.
+
 =item allowed_attestation_types
 
 If you want to restrict the allowed attestation types, you can pass an arrayref of strings as the C<allowed_attestation_types> parameter.
@@ -467,6 +513,12 @@ Service, for instance) binds it.
 
 =back
 
+=item metadata
+
+When C<metadata> was given and lists the model: its C<aaguid>,
+C<description>, C<status>, C<status_report> and C<statement> (see
+L<Authen::WebAuthn::Metadata/entry>).
+
 =back
 
 =method validate_assertion
@@ -627,8 +679,8 @@ Relying Party.
 This module supports the "none", "packed", "fido-u2f", "apple", "android-key"
 and "tpm" attestation formats. Their certificates chain to the vendors' roots
 (Apple's WebAuthn root, Google's hardware attestation roots, the TPM
-manufacturers' roots), which you supply in C<trust_anchors>; this module does
-not ship them or read the FIDO Metadata Service.
+manufacturers' roots), which you supply in C<trust_anchors>, or which the FIDO
+Metadata Service lists for each model (see C<metadata>).
 
 The supported public key algorithms are ES256, ES384, ES512, EdDSA (Ed25519),
 RS256, PS256 and RS1, and RFC 9864's fully-specified ESP256, ESP384, ESP512 and

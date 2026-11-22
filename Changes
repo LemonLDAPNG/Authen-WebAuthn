@@ -70,6 +70,16 @@ Unreleased
     the credential as the browser serializes it (PublicKeyCredential
     .toJSON()) in place of its parts; registration then returns the
     transports the browser reported
+  - The FIDO Metadata Service (MDS3), from the to-do list.
+    Authen::WebAuthn::Metadata verifies a metadata BLOB against a root you
+    name, with CRLs for its certificates if you give them, and fetch
+    downloads the BLOB and those CRLs. validate_registration takes the
+    result as metadata: the attestation must chain to the roots the
+    model's metadata lists, and a model whose status is revoked or
+    compromised, or whose metadata does not list the attestation type, is
+    refused. Metadata past its nextUpdate date fails every registration
+    until it is fetched again. metadata_required, refused_statuses and
+    metadata_grace_days adjust this
   - allow_sign_count_regression: a signature count that did not increase
     is reported as sign_count_regressed instead of failing, for Relying
     Parties whose policy is to flag the credential
@@ -124,6 +134,10 @@ Unreleased
     seed each time
   - Every croak and die was disabled in turn, and a test added for each
     one no test noticed, apart from the guards no input can reach
+  - t/25-Metadata.t verifies metadata BLOBs signed by a test Metadata
+    Service in t/pki, with CRLs, and registers against them. xt/mds.t
+    downloads FIDO's BLOB and registers the real-device fixtures with the
+    roots it lists
   - The author tests (dzil test --author) check POD syntax and coverage,
     perlcritic's severity 5 policies, and that no code needs a Perl newer
     than 5.010, the minimum the distribution metadata now declares
