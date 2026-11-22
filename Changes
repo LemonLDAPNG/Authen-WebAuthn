@@ -124,8 +124,11 @@ Unreleased
     seed each time
   - Every croak and die was disabled in turn, and a test added for each
     one no test noticed, apart from the guards no input can reach
-  - GitHub Actions runs the tests on Perl 5.20 to 5.40, with JSON::XS and
-    with JSON::PP, and under valgrind
+  - The author tests (dzil test --author) check POD syntax and coverage,
+    perlcritic's severity 5 policies, and that no code needs a Perl newer
+    than 5.010, the minimum the distribution metadata now declares
+  - GitHub Actions runs the tests on Perl 5.10 to 5.40, with JSON::PP
+    and (after 5.10) JSON::XS, under valgrind, and the author tests
 
 0.005
   - Add allow_unknown_attestation_format option

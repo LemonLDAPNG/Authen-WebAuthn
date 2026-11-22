@@ -162,7 +162,7 @@ for my $name ( sort keys %keys ) {
                 key           => $keys{$name},
                 ( $name eq "PS256" ? ( alg => -37 ) : () ),
                 attestation_format => $format eq "fido-u2f" ? "fido-u2f"
-                : $format =~ s/-.*//r,
+                : ( split /-/, $format )[0],
                 (
                     $format =~ /x5c|u2f/
                     ? (

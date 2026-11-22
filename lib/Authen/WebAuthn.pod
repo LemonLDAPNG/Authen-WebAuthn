@@ -639,6 +639,9 @@ Elliptic curve keys in compressed form are refused, as WebAuthn requires.
 We plan to support additional attestation formats and algorithms in the future,
 given enough time and/or sponsorship.
 
+=for Pod::Coverage attest_\w+ check_\w+ formatAaguid get\w+ make_cryptx_verifier
+matchCertificateInList parse_\w+ resolveFlags
+
 =head1 SEE ALSO
 
 =over 4

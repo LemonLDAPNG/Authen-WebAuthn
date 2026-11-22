@@ -2,6 +2,8 @@ package Authen::WebAuthn::SSLeayChainVerifier;
 
 use warnings;
 use strict;
+
+# VERSION
 use Net::SSLeay 1.88;
 Net::SSLeay::initialize();
 
@@ -203,3 +205,19 @@ sub verify_chain {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Authen::WebAuthn::SSLeayChainVerifier - Verify attestation certificate chains
+
+=head1 DESCRIPTION
+
+This module is internal to L<Authen::WebAuthn>, which uses it to check an
+attestation certificate chain against the trust anchors given to
+C<validate_registration>. Its interface may change in any release.
+
+=for Pod::Coverage getX509 verify_chain
+
+=cut

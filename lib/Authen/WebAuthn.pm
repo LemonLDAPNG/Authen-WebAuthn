@@ -2,6 +2,8 @@ package Authen::WebAuthn;
 
 use strict;
 use warnings;
+
+# VERSION
 use Mouse;
 use MIME::Base64 3.11 qw(encode_base64url decode_base64url);
 use JSON qw(decode_json from_json to_json);
@@ -1154,7 +1156,7 @@ sub _cbor_item {
     if ( $major == 7 ) {
         return Types::Serialiser::false if $info == 20;
         return Types::Serialiser::true  if $info == 21;
-        return undef                    if $info == 22;
+        return undef                    if $info == 22;    ## no critic (ProhibitExplicitReturnUndef)
         croak("Unsupported CBOR simple value or float");
     }
 

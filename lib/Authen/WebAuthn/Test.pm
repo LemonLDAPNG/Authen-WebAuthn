@@ -1,6 +1,8 @@
 package Authen::WebAuthn::Test;
 
 use Mouse;
+
+# VERSION
 use CBOR::XS;
 use MIME::Base64 3.11 qw(encode_base64url decode_base64url);
 use Digest::SHA qw(sha256);
@@ -618,5 +620,8 @@ returns it as JSON. The layout is the simulator's: a registration response
 carries C<id>, C<rawId> and C<type> inside C<response>.
 
 =back
+
+=for Pod::Coverage makeAttestedCredentialData makeAuthData
+makeAttestationObject makeFlags exportAaguid
 
 =cut

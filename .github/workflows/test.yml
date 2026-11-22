@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        perl: ["5.20", "5.26", "5.32", "5.40"]
+        perl: ["5.10", "5.20", "5.26", "5.32", "5.40"]
     steps:
       - uses: actions/checkout@v4
       # GitHub's builds of older Perls link against libnsl, which the runner
@@ -23,15 +23,20 @@ jobs:
       - name: Install dependencies
         run: >-
           cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
-          Hash::Merge::Simple JSON JSON::XS MIME::Base64 Mouse Net::SSLeay URI
+          Hash::Merge::Simple JSON MIME::Base64 Mouse Net::SSLeay URI
           || { cat ~/.cpanm/build.log; exit 1; }
-      - name: Tests, with JSON::XS
-        run: prove -l t
-      # JSON::XS is only recommended; JSON.pm falls back to JSON::PP
+      # JSON::XS is only recommended; without it JSON.pm uses JSON::PP
       - name: Tests, with JSON::PP
         run: prove -l t
+      # JSON::XS 4 does not build on 5.10
+      - name: Install JSON::XS
+        if: matrix.perl != '5.10'
+        run: cpanm --notest JSON::XS || { cat ~/.cpanm/build.log; exit 1; }
+      - name: Tests, with JSON::XS
+        if: matrix.perl != '5.10'
+        run: prove -l t
         env:
-          PERL_JSON_BACKEND: JSON::PP
+          PERL_JSON_BACKEND: JSON::XS
 
   valgrind:
     name: valgrind
@@ -94,7 +99,7 @@ jobs:
           FUZZ_SECONDS: 20
 
   dist:
-    name: dzil build
+    name: dzil build and static checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -105,6 +110,8 @@ jobs:
       # the distribution
       - run: cpanm --notest Dist::Zilla
       - run: dzil authordeps --missing | cpanm --notest
-      - run: dzil listdeps --missing | cpanm --notest
+      - run: dzil listdeps --author --missing | cpanm --notest
       - run: dzil build
-      - run: dzil test
+      # --author adds POD syntax and coverage, perlcritic and the minimum
+      # Perl version (dist.ini) to the tests
+      - run: dzil test --author
