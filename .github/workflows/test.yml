@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: >-
           cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
-          Hash::Merge::Simple JSON JSON::XS Mouse Net::SSLeay URI
+          Hash::Merge::Simple JSON JSON::XS MIME::Base64 Mouse Net::SSLeay URI
           || { cat ~/.cpanm/build.log; exit 1; }
       - name: Tests, with JSON::XS
         run: prove -l t

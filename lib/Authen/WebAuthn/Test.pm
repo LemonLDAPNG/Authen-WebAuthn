@@ -2,7 +2,7 @@ package Authen::WebAuthn::Test;
 
 use Mouse;
 use CBOR::XS;
-use MIME::Base64 qw(encode_base64url decode_base64url);
+use MIME::Base64 3.11 qw(encode_base64url decode_base64url);
 use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;

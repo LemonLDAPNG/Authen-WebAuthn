@@ -3,7 +3,7 @@ package Authen::WebAuthn;
 use strict;
 use warnings;
 use Mouse;
-use MIME::Base64 qw(encode_base64url decode_base64url);
+use MIME::Base64 3.11 qw(encode_base64url decode_base64url);
 use JSON qw(decode_json from_json to_json);
 use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;

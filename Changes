@@ -53,6 +53,8 @@ Unreleased
     Security Key by Yubico, chains to Yubico's root. Their
     certificates give their signature unused bits, which OpenSSL 1.1 and
     later refuse; as Yubico's own libraries do, the count is read as 0
+  - MIME::Base64 3.11 or later is required: the base64url functions the
+    module uses are missing from the copy that comes with Perl 5.10
 
   [New]
   - ES384, ES512 and EdDSA (Ed25519) credential keys, and RFC 9864's
