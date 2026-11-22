@@ -115,6 +115,11 @@ Unreleased
     real authenticators (Apple, Windows Hello and other TPMs, Android,
     YubiKeys), taken from py_webauthn's and java-webauthn-server's
     tests, with their chains checked against the published roots
+  - xt/fuzz.t mutates real responses, certificates and the structures
+    inside them, and generates CBOR, and checks that every input is
+    accepted or refused with the module's own message, quickly, and that
+    CBOR is read as CBOR::XS reads it. GitHub Actions runs it with a new
+    seed each time
   - Every croak and die was disabled in turn, and a test added for each
     one no test noticed, apart from the guards no input can reach
   - GitHub Actions runs the tests on Perl 5.20 to 5.40, with JSON::XS and

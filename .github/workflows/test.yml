@@ -74,6 +74,25 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/simplewebauthn/node_modules
 
+  # A new random seed each run; a failure prints the FUZZ_SEED that
+  # reproduces it
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: "5.40"
+      - name: Install dependencies
+        run: >-
+          cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
+          Hash::Merge::Simple JSON Mouse Net::SSLeay URI
+          || { cat ~/.cpanm/build.log; exit 1; }
+      - run: prove -lv xt/fuzz.t
+        env:
+          FUZZ_SECONDS: 20
+
   dist:
     name: dzil build
     runs-on: ubuntu-latest
