@@ -82,6 +82,10 @@ for my $f (@$fixtures) {
             is( $result->{signature_count},
                 $f->{signature_count}, "... with its signature count" );
         }
+        if ( my $flags = $f->{flags} ) {
+            is_deeply( { map { $_ => $result->{$_} } keys %$flags },
+                $flags, "... and its flags" );
+        }
     }
     else {
         ok( !$result, "$name is refused" );

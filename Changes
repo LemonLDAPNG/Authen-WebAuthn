@@ -113,10 +113,12 @@ Unreleased
     not explained
   - xt/valgrind.t runs the tests under valgrind's memcheck when it is
     installed
-  - t/24-Real-devices.t verifies 69 registrations and assertions from
+  - t/24-Real-devices.t verifies 73 registrations and assertions from
     real authenticators (Apple, Windows Hello and other TPMs, Android,
-    YubiKeys), taken from py_webauthn's and java-webauthn-server's
-    tests, with their chains checked against the published roots
+    YubiKeys): 69 from py_webauthn's and java-webauthn-server's tests,
+    with their chains checked against the published roots, and 4
+    recorded for this module from iCloud Keychain passkeys, on a Mac
+    with Touch ID and on an iPhone over hybrid transport
   - xt/fuzz.t mutates real responses, certificates and the structures
     inside them, and generates CBOR, and checks that every input is
     accepted or refused with the module's own message, quickly, and that

@@ -1288,5 +1288,99 @@
    9,
    16
   ]
+ },
+ {
+  "attestation_object_b64" : "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YViYSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NdAAAAAPv8MAcVTk7MjAtuAgVX170AFPJBAj3MaICravXZMX9YZKKNskcEpQECAyYgASFYIJGNuY1Phpb8F3DpquNXVT6c1bAHMlI8Tmx_Ogn0nr1aIlggJ_GMBmyzO0-RlvYpDUgR4sQceP6bi1viT0EdPnFY5sg",
+  "attestation_type" : "None",
+  "ceremony" : "registration",
+  "challenge_b64" : "0EurjZTQ50-GI7JTSQ6AXxgoFVfjD6OBVAlHU5S_S7g",
+  "client_data_json_b64" : "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiMEV1cmpaVFE1MC1HSTdKVFNRNkFYeGdvRlZmakQ2T0JWQWxIVTVTX1M3ZyIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODc3NyIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+  "credential_id_b64" : "8kECPcxogKtq9dkxf1hkoo2yRwQ",
+  "expect" : "accepted",
+  "flags" : {
+   "backup_eligible" : 1,
+   "backup_state" : 1,
+   "user_verified" : 1
+  },
+  "from" : "Authen-WebAuthn",
+  "name" : "macOS Safari 27.2, iCloud Keychain passkey with Touch ID: registration",
+  "note" : "Asked for direct attestation; Apple passkeys answer with none",
+  "origins" : [
+   "http://localhost:8777"
+  ],
+  "rp_id" : "localhost",
+  "signature_count" : 0
+ },
+ {
+  "authenticator_data_b64" : "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MdAAAAAA",
+  "ceremony" : "assertion",
+  "challenge_b64" : "JogS_RHqn_9FUPleY3CouzM_jPJdfhEQd_ihQe1TyXc",
+  "client_data_json_b64" : "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiSm9nU19SSHFuXzlGVVBsZVkzQ291ek1falBKZGZoRVFkX2loUWUxVHlYYyIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODc3NyIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+  "credential_id_b64" : "8kECPcxogKtq9dkxf1hkoo2yRwQ",
+  "expect" : "accepted",
+  "flags" : {
+   "backup_eligible" : 1,
+   "backup_state" : 1,
+   "user_verified" : 1
+  },
+  "from" : "Authen-WebAuthn",
+  "name" : "macOS Safari 27.2, iCloud Keychain passkey with Touch ID: sign-in",
+  "origins" : [
+   "http://localhost:8777"
+  ],
+  "registration" : "macOS Safari 27.2, iCloud Keychain passkey with Touch ID: registration",
+  "requested_uv" : "preferred",
+  "rp_id" : "localhost",
+  "signature_b64" : "MEYCIQCUA46tMwMNrHuWzU1xhUPHrIw68mmqWzjkVLwmfGNVlQIhAJFkkvG_HQchUnGJ0Xaa9Zzj5CZ27dB8nEAp3zBePoA3",
+  "signature_count" : 0,
+  "stored_sign_count" : 0,
+  "user_handle_b64" : "Z0lMWjRHWm9IWnFsc2JRZldEOTZrdw"
+ },
+ {
+  "attestation_object_b64" : "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YViYSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NdAAAAAPv8MAcVTk7MjAtuAgVX170AFG_5kdGnC_s8rMJWr9x6AZelW-anpQECAyYgASFYIIcjkXLLfRnHlTA-boN7rGTLU5XO4gntEqIss_LcuC_NIlggVafiZNznbDgOAch8Z20J1rmv1p6wFJXEK3xGpAMwWgE",
+  "attestation_type" : "None",
+  "ceremony" : "registration",
+  "challenge_b64" : "tzM0SyYTwx3FKBZVfrf2gkqQN3j8PwPJdmswm1jAom4",
+  "client_data_json_b64" : "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoidHpNMFN5WVR3eDNGS0JaVmZyZjJna3FRTjNqOFB3UEpkbXN3bTFqQW9tNCIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODc3NyIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+  "credential_id_b64" : "b_mR0acL-zyswlav3HoBl6Vb5qc",
+  "expect" : "accepted",
+  "flags" : {
+   "backup_eligible" : 1,
+   "backup_state" : 1,
+   "user_verified" : 1
+  },
+  "from" : "Authen-WebAuthn",
+  "name" : "iPhone passkey over hybrid (QR code) from macOS Safari 27.2: registration",
+  "note" : "Asked for direct attestation; Apple passkeys answer with none",
+  "origins" : [
+   "http://localhost:8777"
+  ],
+  "rp_id" : "localhost",
+  "signature_count" : 0
+ },
+ {
+  "authenticator_data_b64" : "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MdAAAAAA",
+  "ceremony" : "assertion",
+  "challenge_b64" : "nayE_KC_I4BRHuhC6UIW4OIxdnkbiud2f75W7HC-8ic",
+  "client_data_json_b64" : "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoibmF5RV9LQ19JNEJSSHVoQzZVSVc0T0l4ZG5rYml1ZDJmNzVXN0hDLThpYyIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODc3NyIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+  "credential_id_b64" : "b_mR0acL-zyswlav3HoBl6Vb5qc",
+  "expect" : "accepted",
+  "flags" : {
+   "backup_eligible" : 1,
+   "backup_state" : 1,
+   "user_verified" : 1
+  },
+  "from" : "Authen-WebAuthn",
+  "name" : "iPhone passkey over hybrid (QR code) from macOS Safari 27.2: sign-in (through the passkey synced to the Mac)",
+  "origins" : [
+   "http://localhost:8777"
+  ],
+  "registration" : "iPhone passkey over hybrid (QR code) from macOS Safari 27.2: registration",
+  "requested_uv" : "preferred",
+  "rp_id" : "localhost",
+  "signature_b64" : "MEUCIQDs2UF35jZk7A_xpqaAP_4wOINV54TEQJQB95xu0OnJ-QIgUkVg3J2zO5Y9uw3jwzmOAmuRxIOYcc9Cd66tBeKE6mU",
+  "signature_count" : 0,
+  "stored_sign_count" : 0,
+  "user_handle_b64" : "djUtSUp2ZUlYa1l0VTNIRHNKeDVwdw"
  }
 ]
