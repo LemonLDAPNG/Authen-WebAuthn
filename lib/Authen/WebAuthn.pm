@@ -343,7 +343,8 @@ sub validate_registration {
       };
 
     my $metadata = $params{metadata};
-    _check_metadata_freshness( $metadata, %params ) if defined $metadata;
+    _check_metadata_freshness( $params{metadata}, %params )
+      if defined $params{metadata};
 
     my $client_data_json = decode_base64url($client_data_json_b64);
     my $client_data      = _decode_client_data($client_data_json);
@@ -529,7 +530,7 @@ sub validate_registration {
         and $attestation_result->{type} !~ /^(?:Self|None)$/ )
     {
         $metadata_entry =
-          _check_metadata( $metadata, $attestation_result, $authenticator_data,
+          _check_metadata( $attestation_result, $authenticator_data,
             $attestation_statement_format, %params );
         $trust_anchors = [
             @{ $trust_anchors || [] },
@@ -606,21 +607,18 @@ sub _check_metadata_freshness {
       and $metadata->isa("Authen::WebAuthn::Metadata");
     return if $params{allow_stale_metadata};
 
-    my $grace = $params{metadata_grace_days} // 0;
-    croak("metadata_grace_days must be a number of days")
-      unless $grace =~ /\A[0-9]+\z/;
-    my $now = $Authen::WebAuthn::SSLeayChainVerifier::verification_time // time;
-    croak(  "Metadata BLOB "
-          . $metadata->no
-          . " is out of date: its next update was due by "
-          . $metadata->next_update )
-      if $now >= $metadata->expires + $grace * 86400;
+    # The clock attestation chains are checked at
+    $metadata->check_freshness(
+        now => $Authen::WebAuthn::SSLeayChainVerifier::verification_time
+          // time,
+        grace_days => $params{metadata_grace_days},
+    );
     return;
 }
 
 sub _check_metadata {
-    my ( $metadata, $attestation_result, $authenticator_data, $format, %params )
-      = @_;
+    my ( $attestation_result, $authenticator_data, $format, %params ) = @_;
+    my $metadata = $params{metadata};
 
     my @chain  = @{ $attestation_result->{trust_path} };
     my $aaguid = $authenticator_data->{attestedCredentialData}->{aaguid};
@@ -649,11 +647,11 @@ sub _check_metadata {
         # A compromised key named in the report concerns only its chains
         my @named =
           grep { defined } @{$report}{qw(certificate batchCertificate)};
-        my $concerned = ( $status ne "ATTESTATION_KEY_COMPROMISE" or !@named )
-          || grep {
-            my $der = MIME::Base64::decode_base64($_);
-            grep { $_ eq $der } @chain
-          } @named;
+        my %in_chain = map { $_ => 1 } @chain;
+        my $concerned =
+             $status ne "ATTESTATION_KEY_COMPROMISE"
+          || !@named
+          || grep { $in_chain{ MIME::Base64::decode_base64($_) } } @named;
         croak(
             "$name has metadata status $status"
               . (

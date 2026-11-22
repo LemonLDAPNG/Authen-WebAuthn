@@ -71,6 +71,7 @@ my %ALG = (
     RS256 => { class => "Crypt::PK::RSA" },
 );
 
+my $BASE64 = qr{\A[A-Za-z0-9+/]+={0,2}\z};
 my $UUID = qr/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/;
 
 sub new {
@@ -100,19 +101,15 @@ sub new {
       if exists $header->{x5u};
 
     # Without x5c, the root itself signs (MDS 3.1, section 3.2)
-    my @chain       = _x5c($header);
-    my $crl_checked = 0;
+    my @chain = _x5c($header);
+    my $crls  = $args{crls} && [ map { _der_crl($_) } @{ $args{crls} } ];
     if (@chain) {
-        my @crls   = map { _der_crl($_) } @{ $args{crls} || [] };
-        my $result = Authen::WebAuthn::SSLeayChainVerifier::verify_chain(
-            $roots, $chain[0],
-            [ @chain[ 1 .. $#chain ] ],
-            $args{crls} ? \@crls : undef
-        );
+        my $result =
+          Authen::WebAuthn::SSLeayChainVerifier::verify_chain( $roots,
+            $chain[0], [ @chain[ 1 .. $#chain ] ], $crls );
         croak "Cannot verify the metadata BLOB's certificates: "
           . $result->{message}
           unless $result->{result};
-        $crl_checked = $args{crls} ? 1 : 0;
     }
 
     my $signer =
@@ -155,7 +152,7 @@ sub new {
         no          => $no + 0,
         next_update => $next_update,
         expires     => $expires,
-        crl_checked => $crl_checked,
+        crl_checked => @chain && $crls ? 1 : 0,
         legal       => $payload->{legalHeader},
         by_aaguid   => {},
         by_key_id   => {},
@@ -177,6 +174,18 @@ sub no          { $_[0]->{no} }
 sub next_update { $_[0]->{next_update} }
 sub expires     { $_[0]->{expires} }
 sub crl_checked { $_[0]->{crl_checked} }
+
+sub check_freshness {
+    my ( $self, %args ) = @_;
+    my $grace = $args{grace_days} // 0;
+    croak "metadata_grace_days must be a number of days"
+      unless $grace =~ /\A[0-9]+\z/;
+    croak
+      "Metadata BLOB $self->{no} is out of date: its next update was due by "
+      . $self->{next_update}
+      if ( $args{now} // time ) >= $self->{expires} + $grace * 86400;
+    return 1;
+}
 
 sub entry {
     my ( $self, $by, $value ) = @_;
@@ -216,14 +225,10 @@ sub fetch {
     }
 
     return $class->new(
-        blob => $blob,
-        root => $args{root},
-        crls => \@crls,
-        (
-            defined $args{previous_no}
-            ? ( previous_no => $args{previous_no} )
-            : ()
-        ),
+        blob        => $blob,
+        root        => $args{root},
+        crls        => \@crls,
+        previous_no => $args{previous_no},
     );
 }
 
@@ -251,8 +256,14 @@ sub _x5c {
     croak "Invalid metadata BLOB certificate chain"
       unless ref $x5c eq "ARRAY"
       and @$x5c
-      and !grep { ref or !defined or !m{\A[A-Za-z0-9+/]+={0,2}\z} } @$x5c;
+      and _strings( $x5c, $BASE64 );
     return map { decode_base64($_) } @$x5c;
+}
+
+# Whether every element of a list is a string matching a pattern
+sub _strings {
+    my ( $list, $pattern ) = @_;
+    return !grep { ref or !defined or !/$pattern/ } @$list;
 }
 
 sub _certificate {
@@ -298,7 +309,7 @@ sub _entry {
       // $statement->{attestationCertificateKeyIdentifiers} // [];
     die "invalid attestationCertificateKeyIdentifiers\n"
       unless ref $key_ids eq "ARRAY"
-      and !grep { ref or !defined or !/\A[0-9a-fA-F]+\z/ } @$key_ids;
+      and _strings( $key_ids, qr/\A[0-9a-fA-F]+\z/ );
 
     my $reports = $raw->{statusReports} // [];
     die "invalid statusReports\n"
@@ -311,12 +322,11 @@ sub _entry {
 
     my $roots = $statement->{attestationRootCertificates} // [];
     die "invalid attestationRootCertificates\n"
-      unless ref $roots eq "ARRAY"
-      and !grep { ref or !defined or !m{\A[A-Za-z0-9+/]+={0,2}\z} } @$roots;
+      unless ref $roots eq "ARRAY" and _strings( $roots, $BASE64 );
 
     my $types = $statement->{attestationTypes} // [];
     die "invalid attestationTypes\n"
-      unless ref $types eq "ARRAY" and !grep { ref or !defined } @$types;
+      unless ref $types eq "ARRAY" and _strings( $types, qr/^/ );
 
     return {
         aaguid                                  => $aaguid,
@@ -448,6 +458,14 @@ status, from the latest status report whose status is known),
 C<status_report>, C<status_reports>, C<attestation_types>,
 C<attestation_roots> (PEM certificates) and C<statement>, the metadata
 statement as FIDO publishes it.
+
+=head2 check_freshness
+
+    $metadata->check_freshness( grace_days => 7 );
+
+Croaks if the BLOB is past its C<next_update> date by more than
+C<grace_days> (0 by default). C<now> gives the time to check at, in epoch
+seconds. C<validate_registration> calls it.
 
 =head2 blob, no, next_update, expires, crl_checked
 

@@ -172,17 +172,13 @@ my @mds_entries = (
         ],
     ),
 );
-my $mds_payload = {
-    legalHeader => "Test metadata",
-    no          => 7,
-    nextUpdate  => "2100-01-01",
-    entries     => \@mds_entries,
-};
 $seeds{metadata_blob} = [
     mds_blob( entries => \@mds_entries ),
     mds_blob( signer  => "mds-signer-rsa" )
 ];
-$seeds{metadata_payload} = [ JSON::PP->new->canonical->encode($mds_payload) ];
+$seeds{metadata_payload} =
+  [ JSON::PP->new->canonical->encode( mds_payload( entries => \@mds_entries ) )
+  ];
 my $mds_root = mds_pem("mds-root.pem");
 
 # CBOR exactly as the module reads it, so the decoder sees real shapes

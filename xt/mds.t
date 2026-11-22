@@ -111,10 +111,9 @@ diag("  $_") for sort keys %unlisted;
 # The AAGUID from the authenticator data inside the attestation object
 sub _aaguid {
     my ($f) = @_;
-    my $object = Authen::WebAuthn::_decode_cbor(
-        MIME::Base64::decode_base64url( $f->{attestation_object_b64} ) );
-    return Authen::WebAuthn::getAuthData( $object->{authData} )
-      ->{attestedCredentialData}{aaguid};
+    return Authen::WebAuthn::getAttestationObject(
+        $f->{attestation_object_b64} )
+      ->{authData}{attestedCredentialData}{aaguid};
 }
 
 done_testing();
