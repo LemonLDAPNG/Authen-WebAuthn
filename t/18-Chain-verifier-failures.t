@@ -67,20 +67,12 @@ for my $function ( sort keys %failures ) {
 }
 
 # The same with CRLs, for the calls only they make
-sub crl {
-    my ($name) = @_;
-    open my $fh, '<', "t/pki/$name" or die "t/pki/$name: $!";
-    local $/;
-    my $pem = <$fh>;
-    $pem =~ s/-----[^-]+-----//g;
-    require MIME::Base64;
-    return MIME::Base64::decode_base64($pem);
-}
+require "./t/mds.pl";
 my @crl_chain = (
     [ pem("mds-root") ],
     der("mds-signer"),
     [ der("mds-ca") ],
-    [ crl("mds-root.crl"), crl("mds-ca.crl") ],
+    [ mds_der("mds-root.crl"), mds_der("mds-ca.crl") ],
 );
 
 sub verify_crls {
@@ -119,7 +111,8 @@ for my $function ( sort keys %crl_failures ) {
 }
 
 {
-    local $crl_chain[3] = [ crl("mds-root.crl") . "x", crl("mds-ca.crl") ];
+    local $crl_chain[3] =
+      [ mds_der("mds-root.crl") . "x", mds_der("mds-ca.crl") ];
     like(
         verify_crls()->{message},
         qr/Could not parse CRL/,

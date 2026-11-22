@@ -19,15 +19,10 @@ my $AAGUID = "01020304-0506-0708-090a-0b0c0d0e0f10";
 sub metadata {
     my (%args) = @_;
     my %new = (
-        root => delete $args{root} // $root,
-        crls => exists $args{crls} ? delete $args{crls} : mds_crls(),
-        (
-            exists $args{previous_no}
-            ? ( previous_no => delete $args{previous_no} )
-            : ()
-        ),
+        root        => delete $args{root} // $root,
+        crls        => exists $args{crls} ? delete $args{crls} : mds_crls(),
+        previous_no => delete $args{previous_no},
     );
-    delete $new{crls} unless defined $new{crls};
     return
       scalar
       eval { Authen::WebAuthn::Metadata->new( blob => mds_blob(%args), %new ); };
@@ -70,14 +65,8 @@ subtest "Reading a BLOB" => sub {
     my $no_crls = metadata( crls => undef );
     ok( $no_crls && !$no_crls->crl_checked, "Without CRLs, not checked" );
 
-    my $der_crls = metadata(
-        crls => [
-            map {
-                ( my $b64 = $_ ) =~ s/-----[^-]+-----//g;
-                decode_base64($b64);
-            } @{ mds_crls() }
-        ]
-    );
+    my $der_crls =
+      metadata( crls => [ map { mds_der($_) } "mds-root.crl", "mds-ca.crl" ] );
     ok( $der_crls, "CRLs in DER" ) or diag($@);
 
     my $by_root = metadata( signer => "mds-root", chain => [] );

@@ -45,6 +45,17 @@ sub mds_entry {
     };
 }
 
+# A BLOB's payload: serial number 7, next update in 2100, one entry
+sub mds_payload {
+    my (%args) = @_;
+    return {
+        legalHeader => "Test metadata",
+        no          => $args{no}          // 7,
+        nextUpdate  => $args{next_update} // "2100-01-01",
+        entries     => $args{entries} || [ mds_entry() ],
+    };
+}
+
 # A signed BLOB. signer names a key and certificate in t/pki; chain lists
 # the certificates for x5c (signer first), or is [] for no x5c; payload_json
 # signs those bytes as the payload
@@ -65,14 +76,9 @@ sub mds_blob {
         ),
         %{ $args{header} || {} },
     };
-    my $payload = $args{payload} // {
-        legalHeader => "Test metadata",
-        no          => $args{no}          // 7,
-        nextUpdate  => $args{next_update} // "2100-01-01",
-        entries     => $args{entries} || [ mds_entry() ],
-    };
-    my $json = JSON->new->canonical;
-    my $tbs  = join ".", encode_base64url( $json->encode($header) ),
+    my $payload = $args{payload} // mds_payload(%args);
+    my $json    = JSON->new->canonical;
+    my $tbs     = join ".", encode_base64url( $json->encode($header) ),
       encode_base64url( $args{payload_json} // $json->encode($payload) );
 
     my $key_pem = mds_pem("$signer-key.pem");
