@@ -98,6 +98,21 @@ subtest "Reading a BLOB" => sub {
         "FIDO_CERTIFIED", "Unknown statuses are ignored" );
 };
 
+subtest "The default root" => sub {
+    my $x509 = Crypt::OpenSSL::X509->new_from_string(
+        $Authen::WebAuthn::Metadata::DEFAULT_ROOT);
+    is(
+        $x509->subject,
+        "C=BE, O=GlobalSign nv-sa, CN=GlobalSign Root R46",
+        "is GlobalSign Root R46"
+    );
+    is(
+        $x509->fingerprint_sha256,
+"4F:A3:12:6D:8D:3A:11:D1:C4:85:5A:4F:80:7C:BA:D6:CF:91:9D:3A:5A:88:B0:3B:EA:2C:63:72:D9:3C:40:C9",
+        "... GlobalSign's own"
+    );
+};
+
 subtest "Refusing a BLOB" => sub {
     refused(
         metadata(
@@ -224,6 +239,13 @@ subtest "Refusing a BLOB" => sub {
     );
     refused(
         scalar eval { Authen::WebAuthn::Metadata->new( blob => $blob ) },
+        qr/Cannot verify the metadata BLOB's certificates/,
+        "The default root, FIDO's, did not sign the test BLOB"
+    );
+    refused(
+        scalar
+          eval { Authen::WebAuthn::Metadata->new( blob => $blob, root => [] ); }
+        ,
         qr/Missing root certificate/,
         "No root"
     );

@@ -16,6 +16,44 @@ use Authen::WebAuthn::SSLeayChainVerifier;
 
 our $DEFAULT_URL = "https://mds3.fidoalliance.org/";
 
+# GlobalSign Root R46, which FIDO's BLOB chains to
+# (https://fidoalliance.org/metadata/), from
+# https://secure.globalsign.com/cacert/rootr46.crt: SHA-256 fingerprint
+# 4F:A3:12:6D:8D:3A:11:D1:C4:85:5A:4F:80:7C:BA:D6:CF:91:9D:3A:5A:88:B0:3B:EA:2C:63:72:D9:3C:40:C9
+our $DEFAULT_ROOT = <<'PEM';
+-----BEGIN CERTIFICATE-----
+MIIFWjCCA0KgAwIBAgISEdK7udcjGJ5AXwqdLdDfJWfRMA0GCSqGSIb3DQEBDAUA
+MEYxCzAJBgNVBAYTAkJFMRkwFwYDVQQKExBHbG9iYWxTaWduIG52LXNhMRwwGgYD
+VQQDExNHbG9iYWxTaWduIFJvb3QgUjQ2MB4XDTE5MDMyMDAwMDAwMFoXDTQ2MDMy
+MDAwMDAwMFowRjELMAkGA1UEBhMCQkUxGTAXBgNVBAoTEEdsb2JhbFNpZ24gbnYt
+c2ExHDAaBgNVBAMTE0dsb2JhbFNpZ24gUm9vdCBSNDYwggIiMA0GCSqGSIb3DQEB
+AQUAA4ICDwAwggIKAoICAQCsrHQy6LNl5brtQyYdpokNRbopiLKkHWPd08EsCVeJ
+OaFV6Wc0dwxu5FUdUiXSE2te4R2pt32JMl8Nnp8semNgQB+msLZ4j5lUlghYruQG
+vGIFAha/r6gjA7aUD7xubMLL1aa7DOn2wQL7Id5m3RerdELv8HQvJfTqa1VbkNud
+316HCkD7rRlr+/fKYIje2sGP1q7Vf9Q8g+7XFkyDRTNrJ9CG0Bwta/OrffGFqfUo
+0q3v84RLHIf8E6M6cqJaESvWJ3En7YEtbWaBkoe0G1h6zD8K+kZPTXhc+CtI4wSE
+y132tGqzZfxCnlEmIyDLPRT5ge1lFgBPGmSXZgjPjHvjK8Cd+RTyG/FWaha/LIWF
+zXg4mutCagI0GIMXTpRW+LaCtfOW3T3zvn8gdz57GSNrLNRyc0NXfeD412lPFzYE
++cCQYDdF3uYM2HSNrpyibXRdQr4G9dlkbgIQrImwTDsHTUB+JMWKmIJ5jqSngiCN
+I/onccnfxkF0oE32kRbcRoxfKWMxWXEM2G/CtjJ9++ZdU6Z+Ffy7dXxd7Pj2Fxzs
+x2sZy/N78CsHpdlseVR2bJ0cpm4O6XkMqCNqo98bMDGfsVR7/mrLZqrcZdCinkqa
+ByFrgY/bxFn63iLABJzjqls2k+g9vXqhnQt2sQvHnf3PmKgGwvgqo6GDoLclcqUC
+4wIDAQABo0IwQDAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNV
+HQ4EFgQUA1yrc4GHqMywptWU4jaWSf8FmSwwDQYJKoZIhvcNAQEMBQADggIBAHx4
+7PYCLLtbfpIrXTncvtgdokIzTfnvpCo7RGkerNlFo048p9gkUbJUHJNOxO97k4Vg
+JuoJSOD1u8fpaNK7ajFxzHmuEajwmf3lH7wvqMxX63bEIaZHU1VNaL8FpO7XJqti
+2kM3S+LGteWygxk6x9PbTZ4IevPuzz5i+6zoYMzRx6Fcg0XERczzF2sUyQQCPtIk
+pnnpHs6i58FZFZ8d4kuaPp92CC1r2LpXFNqD6v6MVenQTqnMdzGxRBF6XLE+0xRF
+FRhiJBPSy03OXIPBNvIQtQ6IbbjhVp+J3pZmOUdkLG5NrmJ7v2B0GbhWrJKsFjLt
+rWhV/pi60zTe9Mlhww6G9kuEYO4Ne7UyWHmRVSyBQ7N0H3qqJZ4d16GLuc1CLgSk
+ZoNNiTW2bKg2SnkheCLQQrzRQDGQob4Ez8pn7fXwgNNgyYMqIgXQBztSvwyeqiv5
+u+YfjyW6hY0XHgL+XVAEV8/+LbzvXMAaq7afJMbfc2hIkCwU9D9SGuTSyxTDYWnP
+4vkYxboznxSjBF25cfe1lNj2M8FawTSLfJvdkzrnE6JwYZ+vj+vYxXX4M2bUdGc6
+N3ec592kD3ZDZopD8p/7DEJ4Y9HiD2971KE9dJeFt0g5QdYg/NA6s/rob8SKunE3
+vouXsXgxT7PntgMTzlSdriVZzH81Xwj3QEUxeCp6
+-----END CERTIFICATE-----
+PEM
+
 # AuthenticatorStatus values (MDS 3.1, section 3.1.4); others are ignored
 my %KNOWN_STATUS = map { $_ => 1 } qw(
   NOT_FIDO_CERTIFIED FIDO_CERTIFIED USER_VERIFICATION_BYPASS
@@ -39,8 +77,8 @@ sub new {
 
     my $blob = $args{blob};
     croak "Missing metadata BLOB" unless defined $blob and !ref $blob;
-    my $roots = $args{root};
-    $roots = [$roots] if defined $roots and !ref $roots;
+    my $roots = $args{root} // $DEFAULT_ROOT;
+    $roots = [$roots] unless ref $roots;
     croak "Missing root certificate for the metadata BLOB"
       unless ref $roots eq "ARRAY" and @$roots;
     croak "crls must be an ARRAY reference"
@@ -310,14 +348,11 @@ Authen::WebAuthn::Metadata - Read the FIDO Metadata Service
 
     use Authen::WebAuthn::Metadata;
 
-    # Download and verify the BLOB, with the CRLs of its certificates
-    my $metadata = Authen::WebAuthn::Metadata->fetch( root => $root_pem );
+    # Download FIDO's BLOB and verify it, with the CRLs of its certificates
+    my $metadata = Authen::WebAuthn::Metadata->fetch;
 
     # Keep $metadata->blob, and read it again later without the network
-    $metadata = Authen::WebAuthn::Metadata->new(
-        blob => $saved_blob,
-        root => $root_pem,
-    );
+    $metadata = Authen::WebAuthn::Metadata->new( blob => $saved_blob );
 
     my $result = $webauthn_rp->validate_registration(
         ...,
@@ -365,7 +400,8 @@ The BLOB, a JSON Web Token, as downloaded.
 =item root
 
 The PEM certificate the BLOB's signing certificates chain to, or an arrayref
-of them. For FIDO's production BLOB, this is GlobalSign's Root R46.
+of them. By default, GlobalSign Root R46, the root of FIDO's production BLOB,
+which this module includes.
 
 =item crls
 
@@ -383,15 +419,19 @@ is not higher is refused.
 =head2 fetch
 
     my $metadata = Authen::WebAuthn::Metadata->fetch(
-        root        => $root_pem,
         url         => "https://mds3.fidoalliance.org/",
+        root        => $root_pem,
         previous_no => $no,
         http        => HTTP::Tiny->new(...),
     );
 
 Downloads the BLOB from C<url> (FIDO's by default), then the CRL of every
-certificate it chains through, and passes them to C<new>. HTTPS needs
-L<IO::Socket::SSL>.
+certificate it chains through, and passes them to C<new>; C<root> and
+C<previous_no> are as for C<new>. HTTPS needs L<IO::Socket::SSL>.
+
+FIDO answers downloads repeated within minutes with "429 Too Many Requests",
+and suggests a monthly download. The BLOB is about 11 MB; reading it takes a
+fraction of a second with L<JSON::XS>, and some seconds without.
 
 =head2 entry
 

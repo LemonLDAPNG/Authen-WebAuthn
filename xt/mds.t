@@ -17,13 +17,12 @@ use Authen::WebAuthn::Metadata;
 #
 #   MDS_FETCH=1 prove -l xt/mds.t
 #
-# MDS_ROOT names the PEM file of the BLOB's root, GlobalSign Root R46 for
-# FIDO's production BLOB; MDS_URL another BLOB.
+# MDS_URL names another BLOB, and MDS_ROOT the PEM file of its root. FIDO answers repeated
+# downloads with 429 Too Many Requests: MDS_BLOB names a BLOB already
+# downloaded, and only the CRLs are fetched.
 
 plan skip_all => "set MDS_FETCH=1 to download FIDO's metadata BLOB"
   unless $ENV{MDS_FETCH};
-plan skip_all => "set MDS_ROOT to the BLOB's root certificate (PEM)"
-  unless $ENV{MDS_ROOT};
 
 sub slurp {
     my ($path) = @_;
@@ -32,9 +31,28 @@ sub slurp {
     return <$fh>;
 }
 
+{
+
+    package SavedBlob;
+    use parent -norequire, "HTTP::Tiny";
+
+    sub get {
+        my ( $self, $url ) = @_;
+        return $self->SUPER::get($url)
+          unless $url eq
+          ( $ENV{MDS_URL} // $Authen::WebAuthn::Metadata::DEFAULT_URL );
+        return {
+            success => 1,
+            status  => 200,
+            content => main::slurp( $ENV{MDS_BLOB} )
+        };
+    }
+}
+require HTTP::Tiny;
 my $md = Authen::WebAuthn::Metadata->fetch(
-    root => slurp( $ENV{MDS_ROOT} ),
-    ( $ENV{MDS_URL} ? ( url => $ENV{MDS_URL} ) : () ),
+    ( $ENV{MDS_ROOT} ? ( root => slurp( $ENV{MDS_ROOT} ) ) : () ),
+    ( $ENV{MDS_URL}  ? ( url  => $ENV{MDS_URL} )           : () ),
+    ( $ENV{MDS_BLOB} ? ( http => SavedBlob->new )          : () ),
 );
 ok( $md->crl_checked, "BLOB " . $md->no . " verified, with CRLs" );
 diag( "next update " . $md->next_update );
@@ -83,8 +101,11 @@ for my $f (@$fixtures) {
         fail("$name: $@");
     }
 }
-diag( scalar( keys %listed ) . " fixtures listed in the BLOB, "
-      . scalar( keys %unlisted ) . " not listed:" );
+diag(
+        scalar( keys %listed )
+      . " fixtures listed in the BLOB, "
+      . scalar( keys %unlisted )
+      . " not listed:" );
 diag("  $_") for sort keys %unlisted;
 
 # The AAGUID from the authenticator data inside the attestation object
