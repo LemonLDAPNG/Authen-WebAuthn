@@ -101,6 +101,8 @@ Unreleased
     not explained
   - xt/valgrind.t runs the tests under valgrind's memcheck when it is
     installed
+  - Every croak and die was disabled in turn, and a test added for each
+    one no test noticed, apart from the guards no input can reach
   - GitHub Actions runs the tests on Perl 5.20 to 5.40, and under
     valgrind
 

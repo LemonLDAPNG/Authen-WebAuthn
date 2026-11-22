@@ -83,6 +83,35 @@ subtest "getPEMPubKeyVerifier" => sub {
 };
 
 subtest "Refusals of the key helpers" => sub {
+    my $off_curve = Authen::WebAuthn::Test::_canonical_cbor(
+        { 1 => 2, 3 => -7, -1 => 1, -2 => "\x01" x 32, -3 => "\x02" x 32 } );
+    dies_like(
+        sub {
+            Authen::WebAuthn::attest_packed(
+                { alg => -7, sig => "x" },
+                {
+                    attestedCredentialData => {
+                        credentialPublicKey    => $off_curve,
+                        credentialPublicKeyAlg => "ES256",
+                    }
+                },
+                "", ""
+            );
+        },
+        qr/Cannot get signature validator for attestation/,
+        "Self attestation with a key that cannot verify"
+    );
+    dies_like(
+        sub {
+            Authen::WebAuthn::_check_credential_public_key(
+                Authen::WebAuthn::Test::_canonical_cbor(
+                    { 1 => 2, 3 => -999 }
+                )
+            );
+        },
+        qr/Unsupported algorithm -999/,
+        "A credential key of an algorithm this module does not support"
+    );
     dies_like(
         sub {
             Authen::WebAuthn::parse_ecc_cose(
@@ -193,6 +222,52 @@ subtest "Simulator" => sub {
     $json = decode_json( $authenticator->encode_credential($registration) );
     is( decode_base64url( $json->{response}->{attestationObject} ),
         $attestation_object, "encode_credential encodes attestationObject" );
+};
+
+subtest "Refusals tested directly" => sub {
+    dies_like(
+        sub {
+            Authen::WebAuthn::getPubKeyVerifier(
+                Authen::WebAuthn::Test::_canonical_cbor(
+                    { 1 => 2, -1 => 1, -2 => "x" x 32, -3 => "y" x 32 }
+                )
+            );
+        },
+        qr/^Missing algorithm in credential public key/,
+        "A credential public key without an algorithm"
+    );
+
+    dies_like(
+        sub {
+            Authen::WebAuthn::getAuthData(
+                ( "\0" x 32 ) . "\x81" . "\0\0\0\1" );
+        },
+        qr/^Extension data flag is set but there is no extension data/,
+        "Authenticator data flagging extensions it does not have"
+    );
+
+    # Only a malformed certificate can carry such an extension
+    {
+
+        package FakeExtension;
+        sub critical { 0 }
+        sub value    { "#0409" . ( "0" x 32 ) }
+
+        package FakeCertificate;
+
+        sub extensions_by_oid {
+            return { "1.3.6.1.4.1.45724.1.1.4" => bless {}, "FakeExtension" };
+        }
+    }
+    dies_like(
+        sub {
+            Authen::WebAuthn::_check_aaguid_extension(
+                bless( {}, "FakeCertificate" ),
+                { attestedCredentialData => { aaguid => "0" x 32 } } );
+        },
+        qr/^Invalid id-fido-gen-ce-aaguid extension format/,
+        "An AAGUID extension that is not a 16-byte OCTET STRING"
+    );
 };
 
 done_testing();

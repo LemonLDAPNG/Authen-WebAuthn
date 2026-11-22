@@ -315,6 +315,13 @@ subtest "android-key description" => sub {
         qr/Invalid key description/,
         "Not a sequence"
     );
+    my $set = $description->( $list->(), $list->() );
+    substr( $set, 0, 1 ) = "\x31";
+    $invalid->(
+        $set,
+        qr/Invalid key description/,
+        "A set, though it has every field"
+    );
     $invalid->(
         der( "\x30", $integer->(3) ),
         qr/Invalid key description/,
@@ -421,8 +428,13 @@ subtest "tpm" => sub {
     );
     refused(
         attest( "attest_tpm", $tpm, statement => { alg => -999 } ),
-        qr/Unsupported algorithm -999/,
+        qr/^Unsupported algorithm -999 at/,
         "An unsupported algorithm"
+    );
+    refused(
+        attest( "attest_tpm", $tpm, statement => { alg => -8 } ),
+        qr/^Cannot get signature validator for attestation/,
+        "An algorithm the AIK certificate's key cannot be read as"
     );
     refused(
         attest( "attest_tpm", $tpm, statement => { x5c => [] } ),
@@ -625,6 +637,37 @@ subtest "tpm pubArea" => sub {
     );
 };
 
+subtest "packed" => sub {
+    my $packed = registration("packed-es256");
+    my $self   = registration("packed-self-es256");
+
+    refused(
+        attest( "attest_packed", $packed, statement => { alg => undef } ),
+        qr/^Missing algorithm field in attestation statement/,
+        "No algorithm"
+    );
+    refused(
+        attest( "attest_packed", $packed, statement => { alg => [-7] } ),
+        qr/^Invalid algorithm field in attestation statement/,
+        "An algorithm that is not a number"
+    );
+    refused(
+        attest( "attest_packed", $packed, statement => { sig => undef } ),
+        qr/^Missing signature field in attestation statement/,
+        "No signature"
+    );
+    refused(
+        attest( "attest_packed", $packed, statement => { alg => -8 } ),
+        qr/^Cannot extract public key from attestation certificate/,
+        "An algorithm the certificate's key cannot be read as"
+    );
+    refused(
+        attest( "attest_packed", $self, statement => { alg => -999 } ),
+        qr/^Unknown key type in attestation data: -999/,
+        "Self attestation with an unknown algorithm"
+    );
+};
+
 subtest "DER" => sub {
     my @value = Authen::WebAuthn::_der_read( "\x04\x81\x02ab" . "rest" );
     is_deeply( \@value, [ 0x00, 4, "ab", "rest" ], "A long-form length" );
@@ -637,6 +680,8 @@ subtest "DER" => sub {
         like( $@, $message, $name );
     };
     $invalid->( "\x04",          qr/truncated/,     "One byte" );
+    $invalid->( "",              qr/truncated/,     "Nothing" );
+    $invalid->( "\x04\x82\x01",  qr/truncated/,     "A long length cut short" );
     $invalid->( "\x04\x05abc",   qr/truncated/,     "Contents cut short" );
     $invalid->( "\xbf\x85",      qr/truncated/,     "A tag number cut short" );
     $invalid->( "\xbf\x85\x3e",  qr/truncated/,     "No length" );

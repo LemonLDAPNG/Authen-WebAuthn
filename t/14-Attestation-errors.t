@@ -133,6 +133,19 @@ subtest "Packed attestation" => sub {
 subtest "FIDO U2F attestation" => sub {
     ok(
         !register(
+            with_statement( \%u2f, sub { delete $_[0]->{sig} } ),
+            trust_anchors => [$main::yubico_u2f_root],
+        ),
+        "A missing signature is refused"
+    );
+    like(
+        $@,
+        qr/Missing signature field in attestation statement/,
+        "With the expected message"
+    );
+
+    ok(
+        !register(
             with_statement( \%u2f, sub { delete $_[0]->{x5c} } ),
             trust_anchors => [$main::yubico_u2f_root],
         ),

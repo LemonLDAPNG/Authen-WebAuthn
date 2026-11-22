@@ -2317,39 +2317,34 @@ sub attest_packed_self {
 sub _der_read {
     my ($der) = @_;
 
-    croak("DER value is truncated") if length($der) < 2;
-    my $identifier = unpack( "C", $der );
-    my $offset     = 1;
+    my $offset = 0;
+    my $take   = sub {
+        my ($length) = @_;
+        croak("DER value is truncated") if $length > length($der) - $offset;
+        my $bytes = substr( $der, $offset, $length );
+        $offset += $length;
+        return $bytes;
+    };
+
+    my $identifier = unpack( "C", $take->(1) );
     my $number     = $identifier & 0x1f;
     if ( $number == 0x1f ) {
         $number = 0;
         while (1) {
-            croak("DER value is truncated") if length($der) <= $offset;
-            my $byte = unpack( "C", substr( $der, $offset++, 1 ) );
+            my $byte = unpack( "C", $take->(1) );
             $number = ( $number << 7 ) | ( $byte & 0x7f );
             croak("DER tag is too long") if $number > 0xffffff;
             last unless $byte & 0x80;
         }
     }
-    croak("DER value is truncated") if length($der) <= $offset;
-    my $length = unpack( "C", substr( $der, $offset++, 1 ) );
+    my $length = unpack( "C", $take->(1) );
     if ( $length & 0x80 ) {
         my $bytes = $length & 0x7f;
-        croak("DER length is not supported")
-          if $bytes < 1
-          or $bytes > 4
-          or length($der) < $offset + $bytes;
-        $length = unpack( "N",
-            ( "\0" x ( 4 - $bytes ) ) . substr( $der, $offset, $bytes ) );
-        $offset += $bytes;
+        croak("DER length is not supported") if $bytes < 1 or $bytes > 4;
+        $length = unpack( "N", ( "\0" x ( 4 - $bytes ) ) . $take->($bytes) );
     }
-    croak("DER value is truncated") if length($der) < $offset + $length;
-    return (
-        $identifier & 0xe0,
-        $number,
-        substr( $der, $offset, $length ),
-        substr( $der, $offset + $length )
-    );
+    my $contents = $take->($length);
+    return ( $identifier & 0xe0, $number, $contents, substr( $der, $offset ) );
 }
 
 sub _der_is {
@@ -2388,6 +2383,8 @@ sub _certificate_extension {
     my ( $x509, $oid ) = @_;
 
     my $extension = $x509->extensions_by_oid->{$oid} or return;
+
+    # uncoverable condition right note:OpenSSL writes unknown extensions as hex
     my ($hex) = $extension->value =~ /^#([0-9A-Fa-f]*)$/
       or croak("Cannot read certificate extension $oid");
     return pack( "H*", $hex );
@@ -2399,7 +2396,9 @@ sub _same_public_key {
     my ( $cose_raw, $certificate_der ) = @_;
 
     my $cose = _decode_cose_key($cose_raw);
-    my $alg  = $COSE_ALG->{ $cose->{3} // "" }
+
+    # uncoverable condition right note:the credential key is checked first
+    my $alg = $COSE_ALG->{ $cose->{3} // "" }
       or croak( "Unsupported algorithm " . ( $cose->{3} // "(none)" ) );
     my $credential  = $KEY_TYPES->{ $alg->{key_type} }->{parse_cose}->($cose);
     my $certificate = eval { ref($credential)->new( \$certificate_der ) }

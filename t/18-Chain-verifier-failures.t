@@ -9,6 +9,9 @@ use Authen::WebAuthn::SSLeayChainVerifier;
 # check that the verifier reports it, and that verification still works
 # afterwards (a double free would usually crash here).
 
+# Using freed OpenSSL memory can also hang instead of crashing
+alarm 120;
+
 sub pem {
     my ($name) = @_;
     open my $fh, '<', "t/pki/$name.pem" or die "t/pki/$name.pem: $!";
