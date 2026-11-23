@@ -9,7 +9,7 @@ use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
 use Crypt::OpenSSL::X509 1.808;
-use CBOR::XS;
+use CBOR::XS 1.84 ();
 use URI;
 use Carp;
 use Authen::WebAuthn::SSLeayChainVerifier;
@@ -586,7 +586,7 @@ sub matchCertificateInList {
 # Used by u2f assertion types
 sub _getU2FKeyFromCose {
     my ($cose_key) = @_;
-    $cose_key = decode_cbor($cose_key);
+    $cose_key = CBOR::XS->new_safe->decode($cose_key);
 
     # TODO: do we need to support more algs?
     croak( "Unexpected COSE Alg: " . $cose_key->{3} )
@@ -704,7 +704,7 @@ sub get_verifier_for_alg {
 
 sub getPubKeyVerifier {
     my ($pubkey_cose) = @_;
-    my $cose_key = decode_cbor($pubkey_cose);
+    my $cose_key = CBOR::XS->new_safe->decode($pubkey_cose);
 
     my $alg_num = $cose_key->{3};
     return get_verifier_for_alg( $alg_num, $cose_key, "parse_cose" );
@@ -720,7 +720,7 @@ sub getPEMPubKeyVerifier {
 sub getCoseAlgAndLength {
     my ($cbor_raw) = @_;
 
-    my ( $cbor, $length ) = CBOR::XS->new->decode_prefix($cbor_raw);
+    my ( $cbor, $length ) = CBOR::XS->new_safe->decode_prefix($cbor_raw);
 
     my $alg_num = $cbor->{3};
     my $alg     = $COSE_ALG->{$alg_num}->{name};
@@ -806,7 +806,7 @@ sub getAuthData {
         my $ext = substr( $ad, 37 + $attestedCredentialDataLength );
 
         if ($ext) {
-            $res->{extensions} = decode_cbor($ext);
+            $res->{extensions} = CBOR::XS->new_safe->decode($ext);
         }
     }
     else {
@@ -832,7 +832,7 @@ sub getAttestationObject {
     my ($dat)   = @_;
     my $decoded = decode_base64url($dat);
     my $res     = {};
-    my $h       = decode_cbor($decoded);
+    my $h       = CBOR::XS->new_safe->decode($decoded);
     $res->{authData}    = getAuthData( $h->{authData} );
     $res->{authDataRaw} = $h->{authData};
     $res->{attStmt}     = $h->{attStmt};
