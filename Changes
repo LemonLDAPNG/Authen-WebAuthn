@@ -1,5 +1,16 @@
 Revision history for Authen-WebAuthn
  
+0.006
+  - Security: decode client-supplied CBOR with CBOR::XS->new_safe, as
+    CBOR::XS otherwise calls THAW on any loaded class named by a tag 26
+    value (reported by Maurice Aubrey). Requires CBOR::XS 1.84
+  - Security: refuse public keys longer than the largest WebAuthn uses
+    (600 bytes in COSE, 1100 characters in PEM) before decoding them.
+    CryptX takes time quadratic in the size of an RSA key, so one
+    registration could take a minute of CPU (reported by Maurice Aubrey)
+  - Fix trust_anchors given as a code reference, which was always refused
+    (Maurice Aubrey)
+
 0.005
   - Add allow_unknown_attestation_format option
 

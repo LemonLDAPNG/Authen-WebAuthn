@@ -9,7 +9,7 @@ use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
 use Crypt::OpenSSL::X509 1.808;
-use CBOR::XS;
+use CBOR::XS 1.84 ();
 use URI;
 use Carp;
 use Authen::WebAuthn::SSLeayChainVerifier;
@@ -219,7 +219,7 @@ sub validate_registration {
     # anchors (i.e. attestation root certificates) for that attestation type
     # and attestation statement format fmt, from a trusted source or from
     # policy.
-    if ( defined($trust_anchors) and ref($trust_anchors) eq "SUB" ) {
+    if ( ref($trust_anchors) eq "CODE" ) {
 
         my $aaguid = $authenticator_data->{attestedCredentialData}->{aaguid};
 
@@ -234,7 +234,7 @@ sub validate_registration {
         }
     }
     elsif ( defined($trust_anchors) and ref($trust_anchors) ne "ARRAY" ) {
-        croak("trust_anchors parameter must be a SUB or ARRAY reference");
+        croak("trust_anchors parameter must be a CODE or ARRAY reference");
     }
 
     # 21. Assess the attestation trustworthiness using the outputs of the
@@ -586,7 +586,7 @@ sub matchCertificateInList {
 # Used by u2f assertion types
 sub _getU2FKeyFromCose {
     my ($cose_key) = @_;
-    $cose_key = decode_cbor($cose_key);
+    $cose_key = CBOR::XS->new_safe->decode($cose_key);
 
     # TODO: do we need to support more algs?
     croak( "Unexpected COSE Alg: " . $cose_key->{3} )
@@ -699,12 +699,26 @@ sub get_verifier_for_alg {
       ->( $public_key, @signature_options );
 }
 
+# CryptX takes time quadratic in the size of an RSA key to import it: a
+# 500 KB exponent takes tens of seconds, before any signature or
+# certificate chain is checked. Refuse keys longer than the largest ones
+# WebAuthn uses before decoding them.
+
+# A COSE RS256 key of 4096 bits with a 256-bit exponent is 558 bytes, an
+# ES256 key 77
+our $MAX_COSE_KEY_LENGTH = 600;
+
+# A PEM 4096-bit RSA key with a 256-bit exponent is about 860 characters
+our $MAX_PEM_KEY_LENGTH = 1100;
+
 # This function takes a Base64url encoded COSE key and returns a verification
 # method
 
 sub getPubKeyVerifier {
     my ($pubkey_cose) = @_;
-    my $cose_key = decode_cbor($pubkey_cose);
+    croak("Public key is too long")
+      if length($pubkey_cose) > $MAX_COSE_KEY_LENGTH;
+    my $cose_key = CBOR::XS->new_safe->decode($pubkey_cose);
 
     my $alg_num = $cose_key->{3};
     return get_verifier_for_alg( $alg_num, $cose_key, "parse_cose" );
@@ -714,13 +728,15 @@ sub getPubKeyVerifier {
 sub getPEMPubKeyVerifier {
     my ( $pem, $alg_num ) = @_;
 
+    croak("Public key is too long") if length($pem) > $MAX_PEM_KEY_LENGTH;
+
     return get_verifier_for_alg( $alg_num, $pem, "parse_pem" );
 }
 
 sub getCoseAlgAndLength {
     my ($cbor_raw) = @_;
 
-    my ( $cbor, $length ) = CBOR::XS->new->decode_prefix($cbor_raw);
+    my ( $cbor, $length ) = CBOR::XS->new_safe->decode_prefix($cbor_raw);
 
     my $alg_num = $cbor->{3};
     my $alg     = $COSE_ALG->{$alg_num}->{name};
@@ -806,7 +822,7 @@ sub getAuthData {
         my $ext = substr( $ad, 37 + $attestedCredentialDataLength );
 
         if ($ext) {
-            $res->{extensions} = decode_cbor($ext);
+            $res->{extensions} = CBOR::XS->new_safe->decode($ext);
         }
     }
     else {
@@ -832,7 +848,7 @@ sub getAttestationObject {
     my ($dat)   = @_;
     my $decoded = decode_base64url($dat);
     my $res     = {};
-    my $h       = decode_cbor($decoded);
+    my $h       = CBOR::XS->new_safe->decode($decoded);
     $res->{authData}    = getAuthData( $h->{authData} );
     $res->{authDataRaw} = $h->{authData};
     $res->{attStmt}     = $h->{attStmt};
