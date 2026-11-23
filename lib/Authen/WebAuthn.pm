@@ -699,11 +699,25 @@ sub get_verifier_for_alg {
       ->( $public_key, @signature_options );
 }
 
+# CryptX takes time quadratic in the size of an RSA key to import it: a
+# 500 KB exponent takes tens of seconds, before any signature or
+# certificate chain is checked. Refuse keys longer than the largest ones
+# WebAuthn uses before decoding them.
+
+# A COSE RS256 key of 4096 bits with a 256-bit exponent is 558 bytes, an
+# ES256 key 77
+our $MAX_COSE_KEY_LENGTH = 600;
+
+# A PEM 4096-bit RSA key with a 256-bit exponent is about 860 characters
+our $MAX_PEM_KEY_LENGTH = 1100;
+
 # This function takes a Base64url encoded COSE key and returns a verification
 # method
 
 sub getPubKeyVerifier {
     my ($pubkey_cose) = @_;
+    croak("Public key is too long")
+      if length($pubkey_cose) > $MAX_COSE_KEY_LENGTH;
     my $cose_key = CBOR::XS->new_safe->decode($pubkey_cose);
 
     my $alg_num = $cose_key->{3};
@@ -713,6 +727,8 @@ sub getPubKeyVerifier {
 # Same, but input is a PEM and a COSE alg name (used in assertion validation)
 sub getPEMPubKeyVerifier {
     my ( $pem, $alg_num ) = @_;
+
+    croak("Public key is too long") if length($pem) > $MAX_PEM_KEY_LENGTH;
 
     return get_verifier_for_alg( $alg_num, $pem, "parse_pem" );
 }
