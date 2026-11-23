@@ -13,7 +13,7 @@ jobs:
       matrix:
         perl: ["5.10", "5.20", "5.26", "5.32", "5.40"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # GitHub's builds of older Perls link against libnsl, which the runner
       # no longer has, and Crypt::OpenSSL::X509's configure step needs it
       - run: sudo apt-get update && sudo apt-get install -y libnsl-dev
@@ -42,7 +42,7 @@ jobs:
     name: valgrind
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y valgrind
       - uses: shogo82148/actions-setup-perl@v1
         with:
@@ -58,7 +58,7 @@ jobs:
     name: py_webauthn and SimpleWebAuthn
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shogo82148/actions-setup-perl@v1
         with:
           perl-version: "5.40"
@@ -67,13 +67,13 @@ jobs:
           cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
           Hash::Merge::Simple JSON Mouse Net::SSLeay URI
           || { cat ~/.cpanm/build.log; exit 1; }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install webauthn
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "26"
       - run: npm install --prefix "$RUNNER_TEMP/simplewebauthn" @simplewebauthn/server
       - run: prove -lv xt/differential.t
         env:
@@ -85,7 +85,7 @@ jobs:
     name: fuzz
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shogo82148/actions-setup-perl@v1
         with:
           perl-version: "5.40"
@@ -102,7 +102,7 @@ jobs:
     name: dzil build and static checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shogo82148/actions-setup-perl@v1
         with:
           perl-version: "5.40"
