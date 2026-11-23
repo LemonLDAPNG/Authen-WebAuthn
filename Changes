@@ -4,6 +4,8 @@ Revision history for Authen-WebAuthn
   - Security: decode client-supplied CBOR with CBOR::XS->new_safe, as
     CBOR::XS otherwise calls THAW on any loaded class named by a tag 26
     value (reported by Maurice Aubrey). Requires CBOR::XS 1.84
+  - Fix trust_anchors given as a code reference, which was always refused
+    (Maurice Aubrey)
 
 0.005
   - Add allow_unknown_attestation_format option

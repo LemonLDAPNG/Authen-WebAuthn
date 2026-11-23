@@ -69,6 +69,30 @@ subtest
     is( $reg->{attestation_result}->{success}, 1, "Yubico packed attestation" );
   };
 
+subtest "Packed attestation with trust anchors given as a sub" => sub {
+    my %args;
+    $reg = $webauthn->validate_registration(
+        %packed_attestation_response,
+        trust_anchors => sub {
+            %args = @_;
+            return [$main::yubico_u2f_root];
+        },
+    );
+    is( $reg->{attestation_result}->{success}, 1, "Yubico packed attestation" );
+    is( $args{aaguid}, "6d44ba9b-f6ec-2e49-b930-0c8fe920cb73", "AAGUID" );
+    is( $args{attestation_type},   "Basic",  "Attestation type" );
+    is( $args{attestation_format}, "packed", "Attestation format" );
+};
+
+subtest "Trust anchors sub must return an array" => sub {
+    eval {
+        $webauthn->validate_registration( %packed_attestation_response,
+            trust_anchors => sub { $main::yubico_u2f_root } );
+    };
+    like( $@, qr/trust_anchors sub must return an ARRAY reference/,
+        "Died: $@" );
+};
+
 subtest "Packed attestation with unknown CA fails" => sub {
     eval {
         $reg =
