@@ -1,0 +1,117 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Perl ${{ matrix.perl }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        perl: ["5.10", "5.20", "5.26", "5.32", "5.40"]
+    steps:
+      - uses: actions/checkout@v7
+      # GitHub's builds of older Perls link against libnsl, which the runner
+      # no longer has, and Crypt::OpenSSL::X509's configure step needs it
+      - run: sudo apt-get update && sudo apt-get install -y libnsl-dev
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: ${{ matrix.perl }}
+      - name: Install dependencies
+        run: >-
+          cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
+          HTTP::Tiny Hash::Merge::Simple JSON MIME::Base64 Mouse Net::SSLeay URI
+          || { cat ~/.cpanm/build.log; exit 1; }
+      # JSON::XS is only recommended; without it JSON.pm uses JSON::PP
+      - name: Tests, with JSON::PP
+        run: prove -l t
+      # JSON::XS 4 does not build on 5.10
+      - name: Install JSON::XS
+        if: matrix.perl != '5.10'
+        run: cpanm --notest JSON::XS || { cat ~/.cpanm/build.log; exit 1; }
+      - name: Tests, with JSON::XS
+        if: matrix.perl != '5.10'
+        run: prove -l t
+        env:
+          PERL_JSON_BACKEND: JSON::XS
+
+  valgrind:
+    name: valgrind
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y valgrind
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: "5.40"
+      - name: Install dependencies
+        run: >-
+          cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
+          Hash::Merge::Simple JSON Mouse Net::SSLeay URI
+          || { cat ~/.cpanm/build.log; exit 1; }
+      - run: prove -lv xt/valgrind.t
+
+  differential:
+    name: py_webauthn and SimpleWebAuthn
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: "5.40"
+      - name: Install dependencies
+        run: >-
+          cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
+          Hash::Merge::Simple JSON Mouse Net::SSLeay URI
+          || { cat ~/.cpanm/build.log; exit 1; }
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install webauthn
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+      - run: npm install --prefix "$RUNNER_TEMP/simplewebauthn" @simplewebauthn/server
+      - run: prove -lv xt/differential.t
+        env:
+          NODE_PATH: ${{ runner.temp }}/simplewebauthn/node_modules
+
+  # A new random seed each run; a failure prints the FUZZ_SEED that
+  # reproduces it
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: "5.40"
+      - name: Install dependencies
+        run: >-
+          cpanm --notest CBOR::XS Crypt::OpenSSL::X509 Crypt::URandom CryptX
+          Hash::Merge::Simple JSON Mouse Net::SSLeay URI
+          || { cat ~/.cpanm/build.log; exit 1; }
+      - run: prove -lv xt/fuzz.t
+        env:
+          FUZZ_SECONDS: 20
+
+  dist:
+    name: dzil build and static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: "5.40"
+      # Installed globally: modules in the checkout would be gathered into
+      # the distribution
+      - run: cpanm --notest Dist::Zilla
+      - run: dzil authordeps --missing | cpanm --notest
+      - run: dzil listdeps --author --missing | cpanm --notest
+      - run: dzil build
+      # --author adds POD syntax and coverage, perlcritic and the minimum
+      # Perl version (dist.ini) to the tests
+      - run: dzil test --author

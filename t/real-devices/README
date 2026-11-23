@@ -1,0 +1,107 @@
+Responses from real authenticators, for t/24-Real-devices.t
+
+fixtures.json holds registrations and assertions recorded from real
+devices, most of them the ones two other WebAuthn libraries test with: Apple
+(iOS, macOS and a passkey), Windows Hello and five other TPMs, two
+Android phones, and YubiKeys and Security Keys from the NEO to the Bio.
+
+  py_webauthn           https://github.com/duo-labs/py_webauthn
+                        tests/test_verify_*_response*.py
+                        at c9ba2b7dad6b76bec89e44c76c8ed81fc43287bb
+  java-webauthn-server  https://github.com/Yubico/java-webauthn-server
+                        webauthn-server-core/src/test/scala/com/yubico/
+                        webauthn/test/RealExamples.scala
+                        at 3a7edfb2609696808e8daad2508115bd43d88d3f
+
+The responses were taken from those files as they are, re-encoded as
+base64url. The post-quantum (ML-DSA) examples are left out, as this
+module does not support ML-DSA, and so are the tests that build their
+responses in code.
+
+For each response the fixture records the result this module gives:
+"expect" (accepted or refused), and the attestation type, the
+signature count or the start of the error. Two differ from the source
+library, each with a "note" saying why.
+
+"time" is when the attestation's certificates are checked: the time
+the source library's test sets, or else the day after the latest
+notBefore in the certificate chain.
+
+roots/ holds the published root certificates the chains end in:
+
+  apple_webauthn_root_ca          Apple WebAuthn Root CA
+  google_hardware_attestation_*   Google's Android key attestation roots
+  microsoft_tpm_root_2014         Microsoft TPM Root Certificate
+                                  Authority 2014
+  yubico_u2f_root                 Yubico U2F Root CA Serial 457200631
+  globalsign_root_ca              GlobalSign Root CA, which
+                                  py_webauthn uses as a wrong root
+
+The Apple, Google and GlobalSign roots are as py_webauthn ships them
+(webauthn/helpers/known_root_certs.py), the Microsoft root as
+java-webauthn-server's Windows Hello example gives it.
+
+The fixtures from "Authen-WebAuthn" were recorded for this module,
+from Safari 27.2 on macOS 15.7 and an iPhone, with rp_id
+localhost: an iCloud Keychain passkey made with Touch ID, and one made
+on the iPhone over hybrid transport (a QR code from the Mac), each
+registered and used to sign in. Both answer a request for direct
+attestation with none, and are backed up ("flags" records what the
+authenticator data says). They are covered by this module's licence.
+
+The other responses are covered by the licences below.
+
+py_webauthn:
+
+Copyright (c) 2017-2021 Duo Security, Inc. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+java-webauthn-server:
+
+Copyright (c) 2014-2018, Yubico AB
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

@@ -2,10 +2,16 @@ package Authen::WebAuthn::SSLeayChainVerifier;
 
 use warnings;
 use strict;
+
+# VERSION
 use Net::SSLeay 1.88;
 Net::SSLeay::initialize();
 
 our $verification_time;
+
+# From OpenSSL's x509_vfy.h; Net::SSLeay does not export them
+my $X509_V_FLAG_CRL_CHECK     = 0x4;
+my $X509_V_FLAG_CRL_CHECK_ALL = 0x8;
 
 # Parse PEM data into a X509 structure
 # The returned structure must be freed
@@ -24,6 +30,13 @@ sub getX509 {
             }
             else {
                 $x509 = Net::SSLeay::d2i_X509_bio($bio);
+
+                # d2i reads one certificate and ignores what follows it
+                if ( $x509 != 0 and Net::SSLeay::BIO_pending($bio) > 0 ) {
+                    Net::SSLeay::X509_free($x509);
+                    Net::SSLeay::BIO_free($bio);
+                    die "Trailing bytes after certificate";
+                }
             }
             Net::SSLeay::BIO_free($bio);
 
@@ -31,10 +44,10 @@ sub getX509 {
                 return $x509;
             }
             else {
-                die "Could not parse certificate: "
-                  . Net::SSLeay::ERR_error_string(
-                    Net::SSLeay::ERR_get_error() );
+                my $error =
+                  Net::SSLeay::ERR_error_string( Net::SSLeay::ERR_get_error() );
                 Net::SSLeay::ERR_clear_error();
+                die "Could not parse certificate: $error";
             }
         }
         else {
@@ -150,8 +163,39 @@ sub _get_context {
     }
 }
 
+# Parse a DER CRL; the returned structure must be freed
+sub _get_crl {
+    my ($der) = @_;
+
+    my $bio = Net::SSLeay::BIO_new( Net::SSLeay::BIO_s_mem() )
+      or die "Could not allocate new BIO";
+    Net::SSLeay::BIO_write( $bio, $der );
+    my $crl      = Net::SSLeay::d2i_X509_CRL_bio($bio);
+    my $trailing = $crl && Net::SSLeay::BIO_pending($bio) > 0;
+    Net::SSLeay::BIO_free($bio);
+    Net::SSLeay::X509_CRL_free($crl) if $trailing;
+    die "Could not parse CRL" unless $crl and !$trailing;
+    return $crl;
+}
+
+# With CRLs, every certificate of the chain must have one, from its issuer,
+# that does not list it
+sub _add_crls {
+    my ( $trust_store, $crl_list ) = @_;
+
+    for my $der (@$crl_list) {
+        my $crl = _get_crl($der);
+        my $rv  = Net::SSLeay::X509_STORE_add_crl( $trust_store, $crl );
+        Net::SSLeay::X509_CRL_free($crl);
+        die "Could not add CRL to store" if $rv == 0;
+    }
+    Net::SSLeay::X509_STORE_set_flags( $trust_store,
+        $X509_V_FLAG_CRL_CHECK | $X509_V_FLAG_CRL_CHECK_ALL );
+    return;
+}
+
 sub verify_chain {
-    my ( $trusted_list, $target, $untrusted_list ) = @_;
+    my ( $trusted_list, $target, $untrusted_list, $crl_list ) = @_;
 
     my ( $to_verify, @trusted, @untrusted, $trust_store, $chain, $context );
     my $result = { result => 0 };
@@ -164,8 +208,9 @@ sub verify_chain {
         @trusted     = _get_x509_list( $trusted_list, 1 );
         @untrusted   = _get_x509_list($untrusted_list);
         $trust_store = _get_trust_store(@trusted);
-        $chain       = _get_stack(@untrusted);
-        $context     = _get_context( $trust_store, $to_verify, $chain );
+        _add_crls( $trust_store, $crl_list ) if $crl_list;
+        $chain   = _get_stack(@untrusted);
+        $context = _get_context( $trust_store, $to_verify, $chain );
 
         my $rv    = Net::SSLeay::X509_verify_cert($context);
         my $error = Net::SSLeay::X509_STORE_CTX_get_error($context);
@@ -196,3 +241,19 @@ sub verify_chain {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Authen::WebAuthn::SSLeayChainVerifier - Verify attestation certificate chains
+
+=head1 DESCRIPTION
+
+This module is internal to L<Authen::WebAuthn>, which uses it to check an
+attestation certificate chain against the trust anchors given to
+C<validate_registration>. Its interface may change in any release.
+
+=for Pod::Coverage getX509 verify_chain
+
+=cut

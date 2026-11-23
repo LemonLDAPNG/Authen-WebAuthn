@@ -5,7 +5,7 @@
 
 This module lets you validate L<Web Authentication|https://www.w3.org/TR/webauthn/> registration and authentication responses.
 
-Currently, it does not handle the generation of registration and authentication requests.
+It can also build the options for those requests.
 
 The transmission of requests and responses from the application server to the
 user's browser, and interaction with the WebAuthn browser API is also out of
@@ -22,11 +22,9 @@ To register a new device:
 
     my $registration_result = eval {
         $webauthn_rp->validate_registration(
-            challenge_b64          => ... ,
-            requested_uv           => ... ,
-            client_data_json_b64   => ... ,
-            attestation_object_b64 => ... ,
-            token_binding_id_b64   => ... ,
+            challenge_b64   => ... ,
+            requested_uv    => ... ,
+            credential_json => ... ,    # PublicKeyCredential.toJSON()
         )
     };
     if ($@) {
@@ -52,8 +50,6 @@ To authenticate a user:
             authenticator_data_b64 => ...,
             signature_b64          => ...,
             extension_results      => ...,
-            token_binding_id_b64   => ...,
-            trust_anchors          => ...,
         )
     };
     if ($@) {
@@ -72,6 +68,177 @@ expecting to find in registration or authentication responses. This must
 contain the scheme and port of your application, but no path
 (http://app.example.com:8080 or https://app.example.com)
 
+It can also be an arrayref of origins, all of which are accepted. An Android
+application, for instance, reports an origin derived from the key that signed
+it (C<android:apk-key-hash:...>), and a development build is not signed with
+the same key as the release.
+
+
+=attr allow_cross_origin
+
+WebAuthn can be used from an iframe whose origin differs from the top-level
+page's, if the page allows it. By default such requests are refused
+(C<crossOrigin> is true in the client data).
+
+Set this to 1 to accept them, or to an arrayref of the top-level origins you
+accept, which are compared with C<topOrigin> in the client data. Any other
+value, such as a single origin as a string, makes such requests fail.
+
+A C<topOrigin> in the client data is checked the same way even when
+C<crossOrigin> is not set.
+
+=method generate_registration_options
+
+    my $options = $webauthn_rp->generate_registration_options(
+        rp_name   => "Example",
+        user_id   => $user_id,
+        user_name => 'alice@example.com',
+    );
+
+Builds the C<PublicKeyCredentialCreationOptions> for a registration, as a
+hashref that can be serialized to JSON and given to
+C<PublicKeyCredential.parseCreationOptionsFromJSON()> in the browser. Binary
+values are base64url-encoded.
+
+Store C<< $options->{challenge} >> on the server, with the session for
+instance, and pass it to C<validate_registration> as C<challenge_b64>.
+
+It takes the following named arguments
+
+=over 4
+
+=item rp_name
+
+The name of your Relying Party, as shown to the user. Required.
+
+=item user_id
+
+The user handle: an opaque identifier of the user account, at most 64 bytes
+(longer is refused), which must not contain personal information. Required.
+
+=item user_name
+
+The name of the user account, such as a login or an email address. Required.
+
+=item user_display_name
+
+A friendlier name for the user account. Defaults to C<user_name>.
+
+=item challenge_b64
+
+The base64url-encoded challenge. By default, 32 random bytes are generated.
+
+=item allowed_algs
+
+An arrayref of COSE algorithm identifiers, in order of preference. Defaults to
+C<[-8, -7, -257]> (EdDSA, ES256 and RS256), which WebAuthn recommends for
+supporting a wide range of authenticators. Pass the same value to
+C<validate_registration>.
+
+WebAuthn advises against offering the fully-specified identifiers -9, -51, -52
+and -19 here, as many authenticators do not know them; offer ES256, ES384,
+ES512 and EdDSA instead.
+
+=item requested_uv
+
+C<required>, C<preferred> (the default) or C<discouraged>. Pass the same value
+to C<validate_registration>.
+
+=item attestation
+
+The attestation conveyance preference: C<none> (the default), C<indirect>,
+C<direct> or C<enterprise>.
+
+=item attestation_formats
+
+An arrayref of attestation statement format identifiers, such as
+C<packed> and C<tpm>, from most to least preferred. The authenticator may
+use another. Omitted by default, which means no preference.
+
+=item exclude_credentials
+
+An arrayref of the credentials the user already has, so that the same
+authenticator is not registered twice. Each item is a base64url-encoded
+credential ID, or a hashref with an C<id> and an optional arrayref of
+C<transports>.
+
+=item resident_key
+
+C<required>, C<preferred> or C<discouraged>. Omitted by default. C<required>
+also sets C<requireResidentKey>, for browsers that predate C<residentKey>.
+
+=item authenticator_attachment
+
+C<platform> or C<cross-platform>. Omitted by default.
+
+=item timeout
+
+How long the browser may wait for the user, in milliseconds. Omitted by
+default.
+
+=item hints
+
+An arrayref of C<security-key>, C<client-device> and C<hybrid>, in order of
+preference, to guide the browser's choice of authenticator. Omitted by
+default.
+
+=item extensions
+
+A hashref of client extension inputs, such as C<< { credProps => JSON::true } >>,
+passed to the browser as given. Omitted by default.
+
+=back
+
+Values outside the ones listed above for C<requested_uv>, C<attestation>,
+C<resident_key>, C<authenticator_attachment> and C<hints>, a C<timeout>
+that is not a positive whole number, and an C<attestation_formats> item that
+is not a valid identifier make this method croak.
+
+=method generate_assertion_options
+
+    my $options = $webauthn_rp->generate_assertion_options(
+        allow_credentials => \@credential_ids,
+    );
+
+Builds the C<PublicKeyCredentialRequestOptions> for an authentication, as a
+hashref that can be serialized to JSON and given to
+C<PublicKeyCredential.parseRequestOptionsFromJSON()> in the browser.
+
+Store C<< $options->{challenge} >> on the server and pass it to
+C<validate_assertion> as C<challenge_b64>.
+
+It takes the following named arguments, all optional
+
+=over 4
+
+=item challenge_b64
+
+The base64url-encoded challenge. By default, 32 random bytes are generated.
+
+=item requested_uv
+
+C<required>, C<preferred> (the default) or C<discouraged>. Pass the same value
+to C<validate_assertion>.
+
+=item allow_credentials
+
+An arrayref of the credentials that may be used, in the same format as
+C<exclude_credentials> above. Leave it out to let the user pick a discoverable
+credential.
+
+=item timeout
+
+How long the browser may wait for the user, in milliseconds. Omitted by
+default.
+
+=item hints, extensions
+
+As for C<generate_registration_options>.
+
+=back
+
+C<requested_uv>, C<hints> and C<timeout> are checked as for
+C<generate_registration_options>.
 
 =method validate_registration
 
@@ -85,10 +252,23 @@ It takes the following named arguments
 
 The base64url-encoded challenge that was submitted to the authenticator
 
+=item credential_json
+
+The credential as the browser serializes it with C<PublicKeyCredential.toJSON()>
+(or C<JSON.stringify()>), as a JSON string or already decoded. It stands for
+C<client_data_json_b64>, C<attestation_object_b64>, C<credential_id_b64> and
+C<extension_results>, which are then not given separately.
+
+=item credential_id_b64
+
+The base64url-encoded credential ID the browser reported (C<rawId>). If given,
+it must be the credential the authenticator data describes.
+
 =item requested_uv
 
 Whether or not the Relying Party required user verification for this operation.
-Possible values are C<required>, C<preferred>, C<discouraged>.
+Possible values are C<required>, C<preferred> (the default) and
+C<discouraged>; any other value makes validation fail.
 
 =item client_data_json_b64
 
@@ -97,12 +277,6 @@ The base64url-encoded client data received from the authenticator
 =item attestation_object_b64
 
 The base64url-encoded attestation object received from the authenticator
-
-=item token_binding_id_b64
-
-The base64url-encoded Token Binding ID for the current connection. Usually this
-comes from a C<Sec-Provided-Token-Binding-ID> HTTP header. If you are not using
-Token Binding, you can omit this parameter.
 
 =item trust_anchors
 
@@ -123,11 +297,59 @@ This optional parameter can either be an arrayref of strings representing PEM-en
         return [ $pem1, $pem2, ...];
     }
 
+=item metadata
+
+An L<Authen::WebAuthn::Metadata> object, from the FIDO Metadata Service. When
+the attestation names a model (C<Basic>, C<AttCA> or C<AnonCA>), the model is
+looked up by AAGUID, or for C<fido-u2f> by the key identifier of the
+attestation certificate, and:
+
+=over 4
+
+=item *
+
+its attestation must chain to the roots its metadata lists, or to
+C<trust_anchors>;
+
+=item *
+
+its current status must not be one of C<refused_statuses>;
+
+=item *
+
+its metadata must list the type of attestation used.
+
+=back
+
+Registration fails, whatever the attestation, once the metadata is past its
+C<nextUpdate> date: fetch it again before then.
+
+A model the metadata does not list falls back to C<trust_anchors>.
+
+=item metadata_required
+
+With C<metadata>: refuse attested models the metadata does not list.
+
+=item refused_statuses
+
+With C<metadata>: the statuses that refuse a model. By default C<REVOKED>,
+C<ATTESTATION_KEY_COMPROMISE>, C<USER_KEY_REMOTE_COMPROMISE>,
+C<USER_KEY_PHYSICAL_COMPROMISE> and C<USER_VERIFICATION_BYPASS>. An
+C<ATTESTATION_KEY_COMPROMISE> report naming a certificate refuses only
+attestations whose chain contains it.
+
+=item metadata_grace_days, allow_stale_metadata
+
+With C<metadata>: accept metadata up to this many days past its C<nextUpdate>
+date, or at any age.
+
 =item allowed_attestation_types
 
 If you want to restrict the allowed attestation types, you can pass an arrayref of strings as the C<allowed_attestation_types> parameter.
 
-Currently supported values are C<None>,C<Self>,C<Basic>
+Currently supported values are C<None>, C<Self>, C<Basic>, C<AttCA> (the
+C<tpm> format) and C<AnonCA> (the C<apple> format). In a C<compound>
+attestation, every statement's type must be allowed.
 
 By default, all attestation types are allowed
 
@@ -143,6 +365,15 @@ This setting allows you to successfully validate registration, but change the
 type to C<Self> if a trusted certificate was not provided in the
 C<trust_anchors> parameter.
 
+=item allowed_algs
+
+An arrayref of the COSE algorithm identifiers you offered the authenticator in
+C<pubKeyCredParams>, such as C<[-7, -257]> for ES256 and RS256. Registration
+fails if the credential public key uses any other algorithm.
+
+By default, every algorithm supported by this module is accepted, including
+RS1, which signs with SHA-1.
+
 =item allow_unknown_attestation_format
 
 By default, if an unimplemented attestation format is encountered, registration
@@ -152,7 +383,56 @@ This setting allows you to successfully validate registration, but change the
 attestation type to C<None> if an unimplemented attestation format is
 encountered.
 
+=item android_key_require_tee
+
+The C<android-key> format describes the key in two authorization lists: what
+the device's trusted execution environment enforces, and what Android's
+software enforces. By default, the checks the specification asks for (the key
+was generated by the authenticator, is for signing, and is scoped to the RP
+ID) are satisfied by either list. Set this to accept only the trusted
+execution environment's.
+
+=item extension_results
+
+The client extension outputs: what C<getClientExtensionResults()> returned in
+the browser, as C<PublicKeyCredential.toJSON()> writes them (bytes in
+base64url). The outputs of the extensions this module knows (C<appid>,
+C<appidExclude>, C<credProps>, C<largeBlob>, C<prf>) are checked for type;
+others are passed through. An output of the wrong type is refused if it was
+requested, and left out of the results if C<requested_extensions> is not
+given.
+
+=item requested_extensions
+
+The C<extensions> you passed to the browser. Given, an output for an extension
+you did not request is ignored, or refused with
+C<< allow_unsolicited_extensions => 0 >>. The same applies to the authenticator
+extension outputs in the authenticator data (C<credProtect>, C<hmac-secret>,
+C<hmac-secret-mc>, C<minPinLength>, C<credBlob>), which are also checked for
+type.
+
+=item allow_unsolicited_extensions
+
+1 (the default) to ignore extension outputs you did not request, 0 to refuse
+them. Only applies when C<requested_extensions> is given.
+
+=item mediation
+
+The C<mediation> you passed to C<navigator.credentials.create()>. With
+C<conditional> (a passkey created automatically after a password sign-in), the
+user may not have been present, and the User Present flag is not required;
+user verification is still checked as C<requested_uv> says.
+
 =back
+
+The credential public key is checked before registration succeeds: its key
+type must match its algorithm, it must parse, and an RSA key must be between
+2048 and 4096 bits long, with an odd modulus and exponent.
+
+One step of the specification is yours: before storing the credential, refuse
+it if its C<credential_id> is already registered, to any user. Otherwise an
+attacker who registers a victim's credential ID and public key under their own
+account can have the victim sign into it.
 
 This method croaks on errors. If the registration was successful, it returns a hashref with the following subkeys:
 
@@ -170,6 +450,42 @@ The base64url-encoded public key for this authenticator, in COSE format
 
 The initial signature count of this authenticator
 
+=item transports
+
+When C<credential_json> was given, the transports the browser reported for the
+credential (C<usb>, C<hybrid>, C<internal>...), to store and pass back in
+C<allowCredentials>.
+
+=item user_verified
+
+1 if the authenticator verified the user (PIN, biometrics...) during this
+operation, 0 otherwise
+
+=item backup_eligible
+
+1 if the credential may be backed up or synchronized between devices (a
+multi-device credential), 0 if it is bound to a single device. This does not
+change during the lifetime of a credential.
+
+=item backup_state
+
+1 if the credential is currently backed up, 0 otherwise
+
+=item extension_results
+
+The checked client extension outputs, without the unsolicited ones that were
+ignored.
+
+=item authenticator_extensions
+
+The checked authenticator extension outputs, if the authenticator data had any.
+
+=item discoverable
+
+1 if the C<credProps> extension says the credential is discoverable (a
+passkey that can sign in without a username), 0 if it says it is not. Absent
+when C<credProps> was not returned.
+
 =back
 
 This information is supposed to be persisted in the Relying Party, usually in some sort of database
@@ -186,7 +502,8 @@ Contains information about the result of the attestation validation
 
 =item type
 
-The type of attestation used by the authenticator: C<None>, C<Self>, C<Basic>, ...
+The type of attestation used by the authenticator: C<None>, C<Self>,
+C<Basic>, C<AttCA> or C<AnonCA>, or C<Compound> for the C<compound> format
 
 =item trust_path
 
@@ -194,11 +511,30 @@ An arrayref of DER-encoded certificates provided by the authenticator
 
 =item aaguid
 
-The verified AAGUID of the authenticator, this is only provided if the
-attestation was verified successfully and chained up to a trusted root
-certificate.
+The AAGUID of the authenticator, provided only if the attestation was verified
+and chained up to a trusted root certificate. It is checked against the
+attestation certificate when the certificate carries an AAGUID extension;
+otherwise it is only as trustworthy as your choice of trust anchors, since a
+root shared by several models will vouch for any of their AAGUIDs. Choosing the
+anchors by AAGUID (a C<trust_anchors> subroutine reading the FIDO Metadata
+Service, for instance) binds it.
+
+=item statements
+
+For C<Compound>: the statements, in order, each a hashref with C<format>,
+C<type>, C<trust_path> and, with C<metadata>, its model's C<metadata>. The
+compound format (WebAuthn Level 3, section 8.9) carries two or more
+statements of other formats. Each is verified by its own format and checked
+against C<trust_anchors>, C<metadata> and C<allowed_attestation_types> as a
+lone statement would be, and registration fails if any one fails.
 
 =back
+
+=item metadata
+
+When C<metadata> was given and lists the model: its C<aaguid>,
+C<description>, C<status>, C<status_report> and C<statement> (see
+L<Authen::WebAuthn::Metadata/entry>).
 
 =back
 
@@ -214,6 +550,14 @@ It takes the following named arguments
 
 The base64url-encoded challenge that was submitted to the authenticator
 
+=item credential_json
+
+The credential as the browser serializes it with C<PublicKeyCredential.toJSON()>
+(or C<JSON.stringify()>), as a JSON string or already decoded. It stands for
+C<client_data_json_b64>, C<authenticator_data_b64>, C<signature_b64>,
+C<credential_id_b64>, C<user_handle_b64> and C<extension_results>, which are
+then not given separately.
+
 =item credential_pubkey_b64
 
 The base64url-encoded credential public key corresponding to the received Credential ID
@@ -223,10 +567,25 @@ The base64url-encoded credential public key corresponding to the received Creden
 The current signature count in the Relying Party's database. Set it to 0 to
 disable verification of the signature count
 
+=item allow_sign_count_regression
+
+A signature count that is not higher than the stored one may mean the
+authenticator was cloned, and validation fails. What to do about it is the
+Relying Party's policy: set this to 1 to have validation succeed anyway and
+return C<sign_count_regressed>, to flag the credential or ask for another
+factor instead.
+
+=item stored_backup_eligible
+
+The C<backup_eligible> that C<validate_registration> returned for this
+credential, if you stored it. Given, the authenticator's Backup Eligibility
+flag must still have that value, as a credential's eligibility never changes.
+
 =item requested_uv
 
 Whether or not the Relying Party required user verification for this operation.
-Possible values are C<required>, C<preferred>, C<discouraged>.
+Possible values are C<required>, C<preferred> (the default) and
+C<discouraged>; any other value makes validation fail.
 
 =item client_data_json_b64
 
@@ -240,26 +599,91 @@ The base64url-encoded authenticator data received from the authenticator
 
 The base64url-encoded signature received from the authenticator
 
-=item extension_results
+=item credential_id_b64
 
-A hashref containing extension results received from the authenticator
+The base64url-encoded ID of the credential that signed (C<credential.id>).
 
-=item token_binding_id_b64
+=item allowed_credential_ids
 
-The base64url-encoded Token Binding ID for the current connection. Usually this
-comes from a C<Sec-Provided-Token-Binding-ID> HTTP header. If you are not using
-Token Binding, you can omit this parameter.
+An arrayref of the base64url-encoded credential IDs you offered in
+C<allowCredentials>. Given and not empty, C<credential_id_b64> must be one of
+them.
+
+=item user_handle_b64
+
+The base64url-encoded user handle the authenticator returned
+(C<response.userHandle>), if any. Given, it must equal
+C<expected_user_handle_b64>.
+
+=item expected_user_handle_b64
+
+The base64url-encoded user handle of the credential's owner, as given at
+registration (C<user.id>).
+
+=item require_user_handle
+
+Set this when the user was not identified before the ceremony, as when a
+passkey signs in without a username: the user handle is then required. You
+find the credential, and so its owner and public key, from
+C<credential_id_b64>, and the matching user handle proves the authenticator
+holds that owner's credential.
+
+=item extension_results, requested_extensions, allow_unsolicited_extensions
+
+As for C<validate_registration>. An C<appid> output counts only if the
+C<appid> extension was requested, when C<requested_extensions> is given.
+
+=item appid
+
+The AppID you passed in the C<appid> extension, if you did, for credentials
+registered with the FIDO U2F API. When C<< extension_results->{appid} >> is
+true, the authenticator data must carry the hash of this AppID instead of the
+RP ID. Defaults to the C<appid> in C<requested_extensions>, then to the origin
+that matched, as in earlier versions.
 
 =back
 
-This method croaks on errors. If the registration was successful, it returns a
-hashref with the following subkeys:
+This method croaks on errors. If the authentication was successful, it returns
+a hashref with the following subkeys:
 
 =over 4
 
 =item signature_count
 
 The new signature count, to be updated in the Relying Party's database
+
+=item sign_count_regressed
+
+1 if the signature count was not higher than the stored one, which only
+happens with C<allow_sign_count_regression>
+
+=item user_verified
+
+1 if the authenticator verified the user (PIN, biometrics...) during this
+operation, 0 otherwise
+
+=item backup_eligible
+
+1 if the credential may be backed up or synchronized between devices (a
+multi-device credential), 0 if it is bound to a single device. This does not
+change during the lifetime of a credential.
+
+=item backup_state
+
+1 if the credential is currently backed up, 0 otherwise
+
+=item user_handle_b64
+
+The user handle the authenticator returned, if any
+
+=item extension_results
+
+The checked client extension outputs, without the unsolicited ones that were
+ignored.
+
+=item authenticator_extensions
+
+The checked authenticator extension outputs, if the authenticator data had any.
 
 =back
 
@@ -273,15 +697,67 @@ existing U2F device registration to WebAuthen device registrations in your
 Relying Party.
 
 
+=head1 CREDENTIAL RECORD
+
+WebAuthn Level 3 (section 7.1) lists what a Relying Party stores for each
+credential. C<validate_registration> returns each item:
+
+=over 4
+
+=item id: C<credential_id>
+
+=item publicKey: C<credential_pubkey>
+
+=item signCount: C<signature_count>
+
+=item uvInitialized: C<user_verified>
+
+=item transports: C<transports>, when given C<credential_json>
+
+=item backupEligible: C<backup_eligible>
+
+=item backupState: C<backup_state>
+
+=back
+
+Its type is always C<public-key>. Before storing it, check that no user
+already has a credential with this C<credential_id>, which only your database
+can tell: the specification says registration should then fail.
+
+After each C<validate_assertion> (section 7.2), store C<signature_count> and
+C<backup_state>, and pass the stored C<backup_eligible> as
+C<stored_backup_eligible>. When uvInitialized is false and C<user_verified> is
+1, the specification lets it become true, but says that change should be
+authorized by another factor equivalent to user verification. Until it is
+true, do not count C<user_verified> as an authentication factor.
+
 =head1 CAVEAT
 
-This module only supports the "none", "packed" and "fido-u2f" attestation
-format.
+This module supports the "none", "packed", "fido-u2f", "apple", "android-key",
+"tpm" and "compound" attestation formats. Their certificates chain to the vendors' roots
+(Apple's WebAuthn root, Google's hardware attestation roots, the TPM
+manufacturers' roots), which you supply in C<trust_anchors>, or which the FIDO
+Metadata Service lists for each model (see C<metadata>).
 
-Additionaly, only RSA and ECDSA public key algorithms are supported.
+The supported public key algorithms are ES256, ES384, ES512, EdDSA (Ed25519),
+RS256, PS256 and RS1, and RFC 9864's fully-specified ESP256, ESP384, ESP512 and
+Ed25519, which in WebAuthn mean the same as ES256, ES384, ES512 and EdDSA.
+Ed448 is supported too, as RFC 9864's Ed448.
+Elliptic curve keys in compressed form are refused, as WebAuthn requires.
+
+Client-supplied CBOR is refused if it has duplicate map keys, tags,
+indefinite lengths or floats, which could make two decoders read it
+differently. It is not required to be in CTAP2 canonical form (map keys in
+order, numbers in their shortest encoding), which WebAuthn Level 3, section
+2.4, says decoders should refuse: neither changes what a response means, the
+signatures cover the bytes as sent, and some clients have sent attestation
+statements with their keys out of order.
 
 We plan to support additional attestation formats and algorithms in the future,
 given enough time and/or sponsorship.
+
+=for Pod::Coverage attest_\w+ check_\w+ formatAaguid get\w+ make_cryptx_verifier
+matchCertificateInList parse_\w+ resolveFlags
 
 =head1 SEE ALSO
 

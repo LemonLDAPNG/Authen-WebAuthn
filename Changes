@@ -1,5 +1,169 @@
 Revision history for Authen-WebAuthn
  
+Unreleased
+  [Behaviour changes]
+  - CryptX 0.089 or later is required, for Ed448
+  - Cross-origin requests (crossOrigin or topOrigin in the client data)
+    are refused unless the new allow_cross_origin attribute allows them
+  - At registration, a credential public key is refused if it does not
+    parse, if its key type does not match its algorithm, or if it is an
+    RSA key under 2048 bits
+  - Token Binding is no longer checked, as no browser supports it and
+    WebAuthn Level 3 removed it; token_binding_id_b64 is ignored
+  - requested_uv must be required, preferred or discouraged; any other
+    value, which used to mean preferred, is refused
+
+  [Fixes]
+  - Client-supplied CBOR is decoded by this module, in time and memory
+    bounded by its size. CBOR::XS calls THAW on a value tagged as a Perl
+    object, and expands string references, so that a few kilobytes
+    become gigabytes. Only the CBOR WebAuthn uses is accepted: no tags,
+    floats, indefinite lengths or duplicate map keys, and no text string
+    where bytes are expected or the reverse; COSE key types, algorithms
+    and curves must be integers
+  - An RSA credential key over 4096 bits, or with an even modulus or an
+    invalid exponent, is refused before it is read, which took up to a
+    minute for a large one. The 2048-bit minimum counts bits, not bytes
+  - PS256 signatures did not verify (wrong salt length)
+  - trust_anchors given as a code reference was always refused
+  - Ed25519 attestation certificates were refused
+  - Malformed input is refused with this module's own messages, not Perl
+    errors and warnings; this includes a packed attestation certificate
+    without Basic Constraints
+  - An appid extension output is ignored if the appid extension was not
+    requested, when requested_extensions is given
+  - An attestation statement format that is a CBOR byte string, not a
+    text string, is refused
+  - Authenticator data with Backup State but not Backup Eligibility, and
+    credential IDs over 1023 bytes, are refused, as WebAuthn Level 3
+    requires
+  - A trust anchor that is not a PEM certificate is refused, naming it.
+    It used to make every chain fail, or with allow_untrusted_attestation
+    make every attestation Self without a word
+  - An attestation certificate's curve must match the attestation
+    algorithm (ES256 with a P-384 key was accepted)
+  - fido-u2f attestation must carry exactly one certificate, and an
+    id-fido-gen-ce-aaguid extension marked critical is refused
+  - Bytes after a DER attestation certificate are refused
+  - A TPM attestation certificate's Subject Alternative Name and Extended
+    Key Usage must have the structure X.509 gives them: a name whose
+    parts are not a SEQUENCE of SETs of attributes, or a usage that is
+    not an OBJECT IDENTIFIER, was read anyway
+  - The attestation of six early Yubico U2F keys, among them the first
+    Security Key by Yubico, chains to Yubico's root. Their
+    certificates give their signature unused bits, which OpenSSL 1.1 and
+    later refuse; as Yubico's own libraries do, the count is read as 0
+  - MIME::Base64 3.11 or later is required: the base64url functions the
+    module uses are missing from the copy that comes with Perl 5.10
+  - Client data beginning with a UTF-8 byte order mark is accepted, as
+    both ceremonies' UTF-8 decode strips it; it used to fail to parse
+
+  [New]
+  - ES384, ES512 and EdDSA (Ed25519) credential keys, and RFC 9864's
+    fully-specified ESP256, ESP384, ESP512, Ed25519 and Ed448 identifiers
+  - origin can be an arrayref of accepted origins (Frank Carnovale)
+  - generate_registration_options and generate_assertion_options, which
+    check their options against the WebAuthn enumerations and take hints
+    and extensions, and offer EdDSA, ES256 and RS256 by default.
+    generate_registration_options also takes attestation_formats
+  - allowed_algs option to validate_registration
+  - mediation option to validate_registration: with conditional
+    (automatic passkey upgrade), User Present is not required
+  - credential_json: validate_registration and validate_assertion take
+    the credential as the browser serializes it (PublicKeyCredential
+    .toJSON()) in place of its parts; registration then returns the
+    transports the browser reported
+  - The FIDO Metadata Service (MDS3), from the to-do list.
+    Authen::WebAuthn::Metadata verifies a metadata BLOB against FIDO's
+    root (GlobalSign Root R46, included) or one you name, with CRLs for
+    its certificates if you give them, and fetch downloads the BLOB and
+    those CRLs. validate_registration takes the
+    result as metadata: the attestation must chain to the roots the
+    model's metadata lists, and a model whose status is revoked or
+    compromised, or whose metadata does not list the attestation type, is
+    refused. Metadata past its nextUpdate date fails every registration
+    until it is fetched again. metadata_required, refused_statuses and
+    metadata_grace_days adjust this
+  - The compound attestation format (WebAuthn Level 3, section 8.9): two
+    or more statements of other formats, each verified and checked for
+    trust as a lone statement would be. Registration fails if any one
+    fails; attestation_result has type Compound and lists the statements
+  - allow_sign_count_regression: a signature count that did not increase
+    is reported as sign_count_regressed instead of failing, for Relying
+    Parties whose policy is to flag the credential
+  - appid option to validate_assertion, for U2F AppIDs other than the
+    origin
+  - validate_registration and validate_assertion return user_verified,
+    backup_eligible and backup_state
+  - stored_backup_eligible option to validate_assertion: the Backup
+    Eligibility flag must match the one stored at registration
+  - The documentation's CREDENTIAL RECORD section maps WebAuthn Level 3's
+    credential record to what validate_registration returns, and says
+    what to update after each validate_assertion
+  - Sign-in without a username: validate_assertion checks the credential
+    against the allowed credentials and the user handle against the
+    credential's owner, and can require a user handle
+  - The apple, android-key and tpm attestation formats, checked against
+    the specification's test vectors; android_key_require_tee accepts
+    only keys the trusted execution environment enforces
+  - Extension outputs are checked: the client's (appid, appidExclude,
+    credProps, largeBlob, prf) and the authenticator's (credProtect,
+    hmac-secret, minPinLength, credBlob), against their types and against
+    what was requested (prf asks for hmac-secret and hmac-secret-mc); a
+    malformed output nobody requested is left out.
+    validate_registration reports whether the credential is discoverable
+  - JSON::XS is a recommended dependency: JSON.pm uses it when it is
+    installed, and is several times slower without it
+
+  [Authen::WebAuthn::Test]
+  - Produces RSA, P-384, P-521, Ed25519 and Ed448 keys
+  - Deterministic: ECDSA signatures follow RFC 6979 and client data is
+    encoded with its keys in order, so the same inputs give the same
+    response
+  - Packed attestation, self or with a certificate, and fido-u2f
+    attestation
+  - Encodes CBOR canonically, as authenticators do, with integer map
+    keys as CBOR integers
+  - Compound attestation, with compound_statements
+  - encode_credential encodes userHandle, and a registration's rawId, as
+    base64url
+
+  [Tests]
+  - A test PKI in t/pki, and tests reaching every statement
+  - The test vectors of the WebAuthn specification (t/spec-vectors), run
+    by t/21-Spec-test-vectors.t
+  - xt/differential.t verifies the same responses, valid and corrupted,
+    with py_webauthn and SimpleWebAuthn, and fails on any disagreement
+    not explained
+  - xt/valgrind.t runs the tests under valgrind's memcheck when it is
+    installed
+  - t/24-Real-devices.t verifies 73 registrations and assertions from
+    real authenticators (Apple, Windows Hello and other TPMs, Android,
+    YubiKeys): 69 from py_webauthn's and java-webauthn-server's tests,
+    with their chains checked against the published roots, and 4
+    recorded for this module from iCloud Keychain passkeys, on a Mac
+    with Touch ID and on an iPhone over hybrid transport
+  - xt/fuzz.t mutates real responses, certificates and the structures
+    inside them, and generates CBOR, and checks that every input is
+    accepted or refused with the module's own message, quickly, and that
+    CBOR is read as CBOR::XS reads it. GitHub Actions runs it with a new
+    seed each time
+  - Every croak and die was disabled in turn, and a test added for each
+    one no test noticed, apart from the guards no input can reach
+  - t/25-Metadata.t verifies metadata BLOBs signed by a test Metadata
+    Service in t/pki, with CRLs, and registers against them. xt/mds.t
+    downloads FIDO's BLOB and registers the real-device fixtures with the
+    roots it lists: 28 of the 32 attested fixtures are in it, and chain to
+    them. xt/fuzz.t fuzzes BLOBs whole and their payloads
+    signed again
+  - t/26-Compound-attestation.t, with compound statements from
+    Authen::WebAuthn::Test, which can now make them
+  - The author tests (dzil test --author) check POD syntax and coverage,
+    perlcritic's severity 5 policies, and that no code needs a Perl newer
+    than 5.010, the minimum the distribution metadata now declares
+  - GitHub Actions runs the tests on Perl 5.10 to 5.40, with JSON::PP
+    and (after 5.10) JSON::XS, under valgrind, and the author tests
+
 0.005
   - Add allow_unknown_attestation_format option
 

@@ -179,7 +179,7 @@ $authenticator->origin('invalid');
 test_registration(
     {}, {},
     "Fails with wrong Origin",
-    qr,Origin received from client data.*does not match server origin,
+    qr,Origin received from client data.*does not match any server origin,
 );
 $authenticator->origin('http://auth.example.com');
 
@@ -218,7 +218,7 @@ $authenticator->origin('invalid');
 test_authentication(
     {}, {},
     "Fails with wrong Origin",
-    qr,Origin received from client data.*does not match server origin,
+    qr,Origin received from client data.*does not match any server origin,
 );
 $authenticator->origin('http://auth.example.com');
 
@@ -239,28 +239,16 @@ test_authentication(
     { stored_sign_count => 20 },
     {},
     "Fails with wrong signature count",
-    qr,Stored signature count.*higher than device signature count,
+    qr,Device signature count \d+ is not higher than stored signature count,
 );
 
 test_authentication(
     { stored_sign_count => 10 },
     {},
     "Fails with wrong signature count",
-    qr,Stored signature count.*higher than device signature count,
+    qr,Device signature count \d+ is not higher than stored signature count,
 );
 $authenticator->sign_count(0);
-
-test_authentication(
-    { token_binding_id_b64 => "YWJjCg" },
-    {
-        response => {
-            clientDataJSON =>
-              { tokenBinding => { status => "present", id => "ZmFpbAo" } }
-        }
-    },
-    "Mismatching token binding ID fails",
-    qr,Token Binding ID.*does not match,
-);
 
 test_authentication(
     {},
@@ -270,19 +258,7 @@ test_authentication(
               { tokenBinding => { status => "present", id => "ZmFpbAo" } }
         }
     },
-    "Token binding used in Client Data JSON but not in TLS connection",
-qr,The Token Binding ID from the current connection.*does not match Token Binding ID in client data,
-);
-
-test_authentication(
-    { token_binding_id_b64 => "YWJjCg" },
-    {
-        response => {
-            clientDataJSON =>
-              { tokenBinding => { status => "present", id => "YWJjCg" } }
-        }
-    },
-    "Correct token binding ID works",
+    "Token Binding in client data is ignored",
 );
 
 test_authentication(
